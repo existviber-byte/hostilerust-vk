@@ -438,21 +438,26 @@ class HostileRustBot:
         )
     
     def create_ticket(self, user_id, description):
-    """Создание нового тикета"""
-    try:
-        log_error(f"Создание тикета для {user_id}: {description}")
-        
-        # Создаем тикет в базе данных
-        ticket_id = self.db.create_ticket(user_id, description[:100])
-        
-        if ticket_id:
+        """Создание нового тикета"""
+        try:
+            log_error(f"Создание тикета для {user_id}: {description}")
+            
+            # Создаем тикет в базе данных
+            ticket_id = self.db.create_ticket(user_id, description[:100])
+            log_error(f"Результат создания тикета: ticket_id={ticket_id}")
+            
+            if not ticket_id:
+                log_error("❌ Не удалось создать тикет в БД")
+                self.send_message(
+                    user_id,
+                    "❌ Ошибка при создании тикета. Попробуйте позже.",
+                    self.keyboards.back_keyboard()
+                )
+                return
+            
             # Сохраняем первое сообщение
             result = self.db.add_ticket_message(ticket_id, user_id, description, is_admin=False)
-            
-            if result:
-                log_error(f"✅ Сообщение тикета сохранено")
-            else:
-                log_error(f"⚠️ Проблема с сохранением сообщения")
+            log_error(f"Результат сохранения сообщения: {result}")
             
             # Очищаем состояние
             if user_id in self.user_states:
@@ -505,21 +510,15 @@ class HostileRustBot:
                     log_error(f"❌ Ошибка отправки уведомления админу {admin_id}: {e}")
             
             log_error(f"✅ Тикет {ticket_id} успешно создан")
-        else:
-            log_error(f"❌ Не удалось создать тикет в БД")
+            
+        except Exception as e:
+            log_error(f"❌ Критическая ошибка create_ticket: {e}")
+            log_error(traceback.format_exc())
             self.send_message(
                 user_id,
                 "❌ Ошибка при создании тикета. Попробуйте позже.",
                 self.keyboards.back_keyboard()
             )
-    except Exception as e:
-        log_error(f"❌ Критическая ошибка create_ticket: {e}")
-        log_error(traceback.format_exc())
-        self.send_message(
-            user_id,
-            "❌ Ошибка при создании тикета. Попробуйте позже.",
-            self.keyboards.back_keyboard()
-        )
     
     def start_admin_reply(self, admin_id, ticket_id):
         """Начало ответа на тикет (админ)"""
