@@ -178,6 +178,7 @@ class HostileRustBot:
                 elif command.startswith('admin_reply_'):
                     if user_id in ADMIN_IDS:
                         ticket_id = int(command.replace('admin_reply_', ''))
+                        log_error(f"Админ {user_id} начинает ответ на тикет {ticket_id}")
                         self.start_admin_reply(user_id, ticket_id)
                     return
                 elif command.startswith('admin_close_'):
@@ -520,8 +521,10 @@ class HostileRustBot:
                 self.keyboards.back_keyboard()
             )
     
-    def start_admin_reply(self, admin_id, ticket_id):
+        def start_admin_reply(self, admin_id, ticket_id):
         """Начало ответа на тикет (админ)"""
+        log_error(f"start_admin_reply вызвана: admin_id={admin_id}, ticket_id={ticket_id}")
+        
         session = self.db.get_session()
         try:
             from database import Ticket
@@ -535,24 +538,34 @@ class HostileRustBot:
                 self.send_message(admin_id, "❌ Тикет уже закрыт")
                 return
             
+            # Получаем историю сообщений
             messages = self.db.get_ticket_messages(ticket_id)
-            history = "История тикета:\n\n"
+            history = "📋 История тикета:\n\n"
             for msg in messages[-5:]:
-                sender = "Пользователь" if not msg.is_admin else "Вы"
+                sender = "👤 Пользователь" if not msg.is_admin else "👑 Вы"
                 history += f"{sender}: {msg.message[:100]}\n"
             
+            # Устанавливаем состояние
             self.user_states[admin_id] = f'ticket_reply_{ticket_id}'
+            log_error(f"Установлено состояние ticket_reply_{ticket_id} для админа {admin_id}")
             
+            # Отправляем приглашение к ответу
             self.send_message(
                 admin_id,
                 f"✏️ Ответ на тикет #{ticket_id}\n\n"
                 f"{history}\n\n"
-                f"Введите ваш ответ:",
+                f"📝 Введите ваш ответ:",
                 self.keyboards.back_keyboard()
             )
+            
+        except Exception as e:
+            log_error(f"❌ Ошибка в start_admin_reply: {e}")
+            log_error(traceback.format_exc())
+            self.send_message(admin_id, "❌ Ошибка при подготовке ответа")
         finally:
             session.close()
-    
+
+
     def reply_to_ticket(self, admin_id, ticket_id, message):
         """Отправка ответа на тикет (админ)"""
         try:
