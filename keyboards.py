@@ -30,10 +30,12 @@ class Keyboards:
         return keyboard
     
     @staticmethod
-    def tickets_keyboard():
-        keyboard = VkKeyboard(inline=True)
-        keyboard.add_button('➕ Создать тикет', color=VkKeyboardColor.POSITIVE,
-                          payload={'command': 'create_ticket'})
+    def tickets_menu_keyboard():
+        keyboard = VkKeyboard(inline=False)
+        keyboard.add_button('➕ Создать тикет', color=VkKeyboardColor.POSITIVE)
+        keyboard.add_button('👤 Мои тикеты', color=VkKeyboardColor.PRIMARY)
+        keyboard.add_line()
+        keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY)
         return keyboard
     
     @staticmethod
@@ -46,17 +48,7 @@ class Keyboards:
     @staticmethod
     def shop_keyboard():
         keyboard = VkKeyboard(inline=True)
-        keyboard.add_openlink_button('🛒 Открыть магазин', 'https://hostilerust.gamestores.app/')
-        keyboard.add_line()
-        keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY,
-                          payload={'command': 'back_to_main'})
-        return keyboard
-    
-    @staticmethod
-    def server_refresh_keyboard():
-        keyboard = VkKeyboard(inline=True)
-        keyboard.add_button('🔄 Обновить онлайн', color=VkKeyboardColor.PRIMARY,
-                          payload={'command': 'refresh_servers'})
+        keyboard.add_openlink_button('🛒 Открыть магазин', SHOP_URL)
         keyboard.add_line()
         keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY,
                           payload={'command': 'back_to_main'})
