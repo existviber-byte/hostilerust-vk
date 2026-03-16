@@ -10,9 +10,10 @@ import os
 import traceback
 import json
 
-# ==== ЛОГИРОВАНИЕ ====
+# ==== ПРОСТОЕ ЛОГИРОВАНИЕ В ФАЙЛ ====
 log_file = open('bot_errors.log', 'a', encoding='utf-8')
 def log_error(text):
+    """Запись ошибки в файл"""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     log_file.write(f"[{timestamp}] {text}\n")
     log_file.flush()
@@ -62,7 +63,7 @@ class HostileRustBot:
             self.keyboards = Keyboards()
             log_error("✅ Клавиатуры загружены")
             
-            self.user_states = {}  # waiting_ticket, waiting_promo_add, waiting_promo_delete, waiting_broadcast
+            self.user_states = {}
             
             log_error(f"✅ Бот Hostile Rust запущен!")
             log_error(f"👑 Администраторы: {ADMIN_IDS}")
@@ -107,7 +108,7 @@ class HostileRustBot:
         log_error(f"Получено сообщение от {user_id}: '{message}', payload={payload}")
         
         try:
-            # Проверяем состояния пользователя (ожидание ввода)
+            # Проверяем состояния пользователя
             if user_id in self.user_states:
                 state = self.user_states[user_id]
                 log_error(f"Состояние пользователя: {state}")
@@ -128,6 +129,29 @@ class HostileRustBot:
                     ticket_id = int(state.replace('ticket_reply_', ''))
                     self.reply_to_ticket(user_id, ticket_id, message)
                     return
+            
+            # Обработка команд с ! (для админов)
+            if message.startswith('!') and user_id in ADMIN_IDS:
+                parts = message[1:].split()
+                if len(parts) >= 2:
+                    cmd = parts[0].lower()
+                    if cmd == 'ответ' and len(parts) >= 3:
+                        try:
+                            ticket_id = int(parts[1])
+                            reply_text = ' '.join(parts[2:])
+                            self.user_states[user_id] = f'ticket_reply_{ticket_id}'
+                            self.reply_to_ticket(user_id, ticket_id, reply_text)
+                            return
+                        except:
+                            self.send_message(user_id, "❌ Неверный формат. Используйте: !ответ [ID] [текст]")
+                    elif cmd == 'закрыть':
+                        try:
+                            ticket_id = int(parts[1])
+                            self.close_ticket_admin(user_id, ticket_id)
+                            return
+                        except:
+                            self.send_message(user_id, "❌ Неверный формат. Используйте: !закрыть [ID]")
+                return
             
             # Обработка payload (кнопок)
             if payload and isinstance(payload, dict):
@@ -166,7 +190,7 @@ class HostileRustBot:
             msg = message.lower().strip()
             log_error(f"Текстовая команда: '{msg}'")
             
-            # СПЕЦИАЛЬНЫЕ КОМАНДЫ (для кнопок меню поддержки)
+            # Специальные команды для кнопок поддержки
             if msg in ['➕ создать тикет', 'создать тикет']:
                 self.start_ticket_creation(user_id)
                 return
@@ -174,7 +198,7 @@ class HostileRustBot:
                 self.show_my_tickets(user_id)
                 return
             
-            # ОСНОВНЫЕ КОМАНДЫ (для всех пользователей)
+            # Основные команды для всех пользователей
             if msg in ['начать', 'start', 'меню', 'привет', 'старт']:
                 self.register_user(user_id)
                 self.send_main_menu(user_id)
@@ -191,7 +215,7 @@ class HostileRustBot:
             elif msg in ['🔄 вайп', 'вайп']:
                 self.show_wipe_info(user_id)
             
-            # АДМИНСКИЕ КОМАНДЫ (только для админов)
+            # Админские команды
             elif user_id in ADMIN_IDS:
                 if msg in ['админ', 'admin']:
                     self.show_admin_menu(user_id)
@@ -209,20 +233,6 @@ class HostileRustBot:
                     self.show_users_list(user_id)
                 elif msg in ['◀️ назад', 'назад']:
                     self.send_main_menu(user_id)
-                # Добавляем команды из админской клавиатуры тикетов
-                elif msg.startswith('✏️ ответить'):
-                    # Формат: "✏️ Ответить на тикет #123"
-                    try:
-                        ticket_id = int(msg.split('#')[1])
-                        self.start_admin_reply(user_id, ticket_id)
-                    except:
-                        pass
-                elif msg.startswith('❌ закрыть'):
-                    try:
-                        ticket_id = int(msg.split('#')[1])
-                        self.close_ticket_admin(user_id, ticket_id)
-                    except:
-                        pass
             
             # Если ничего не подошло
             else:
@@ -272,7 +282,6 @@ class HostileRustBot:
     def show_tickets_menu(self, user_id):
         """Меню поддержки"""
         try:
-            # Получаем тикеты пользователя
             tickets = self.db.get_user_tickets(user_id)
             open_tickets = [t for t in tickets if t.status == 'open']
             closed_tickets = [t for t in tickets if t.status == 'closed']
@@ -307,15 +316,14 @@ class HostileRustBot:
             
             message = "📋 МОИ ТИКЕТЫ 📋\n\n"
             
-            for ticket in tickets[-10:]:  # Последние 10
+            for ticket in tickets[-10:]:
                 status_emoji = "🟢" if ticket.status == 'open' else "🔴"
                 status_text = "Открыт" if ticket.status == 'open' else "Закрыт"
                 
-                message += f"{status_emoji} **#{ticket.id}** {ticket.title}\n"
+                message += f"{status_emoji} #{ticket.id} {ticket.title}\n"
                 message += f"   📅 {ticket.created_at.strftime('%d.%m.%Y %H:%M')}\n"
                 message += f"   Статус: {status_text}\n"
                 
-                # Показываем последнее сообщение
                 messages = self.db.get_ticket_messages(ticket.id)
                 if messages:
                     last_msg = messages[-1]
@@ -341,7 +349,7 @@ class HostileRustBot:
             messages = self.db.get_ticket_messages(ticket_id)
             
             status_emoji = "🟢" if ticket.status == 'open' else "🔴"
-            message = f"{status_emoji} **ТИКЕТ #{ticket_id}**\n\n"
+            message = f"{status_emoji} ТИКЕТ #{ticket_id}\n\n"
             message += f"📝 Тема: {ticket.title}\n"
             message += f"📅 Создан: {ticket.created_at.strftime('%d.%m.%Y %H:%M')}\n"
             message += f"📊 Статус: {ticket.status}\n\n"
@@ -378,17 +386,13 @@ class HostileRustBot:
         try:
             log_error(f"Создание тикета для {user_id}: {description}")
             
-            # Создаем тикет
             ticket_id = self.db.create_ticket(user_id, description[:100])
             
             if ticket_id:
-                # Сохраняем первое сообщение
                 self.db.add_ticket_message(ticket_id, user_id, description, is_admin=False)
                 
-                # Очищаем состояние
                 del self.user_states[user_id]
                 
-                # Уведомляем пользователя
                 self.send_message(
                     user_id,
                     f"✅ Тикет #{ticket_id} создан!\n\n"
@@ -397,7 +401,6 @@ class HostileRustBot:
                     self.keyboards.tickets_menu_keyboard()
                 )
                 
-                # Уведомляем ВСЕХ админов
                 try:
                     user_info = self.vk_session.users.get(user_ids=user_id)[0]
                     user_name = f"{user_info['first_name']} {user_info['last_name']}"
@@ -412,7 +415,6 @@ class HostileRustBot:
                     f"Для ответа нажмите кнопку ниже:"
                 )
                 
-                # Клавиатура для админа
                 for admin_id in ADMIN_IDS:
                     keyboard = VkKeyboard(inline=True)
                     keyboard.add_button(
@@ -443,76 +445,84 @@ class HostileRustBot:
     
     def start_admin_reply(self, admin_id, ticket_id):
         """Начало ответа на тикет (админ)"""
-        ticket = self.db.get_ticket(ticket_id)
-        
-        if not ticket:
-            self.send_message(admin_id, "❌ Тикет не найден")
-            return
-        
-        if ticket.status == 'closed':
-            self.send_message(admin_id, "❌ Тикет уже закрыт")
-            return
-        
-        self.user_states[admin_id] = f'ticket_reply_{ticket_id}'
-        
-        # Показываем историю переписки
-        messages = self.db.get_ticket_messages(ticket_id)
-        history = "📜 История тикета:\n\n"
-        for msg in messages[-5:]:  # Последние 5 сообщений
-            sender = "Пользователь" if not msg.is_admin else "Вы"
-            history += f"{sender}: {msg.message[:100]}\n"
-        
-        self.send_message(
-            admin_id,
-            f"✏️ Ответ на тикет #{ticket_id}\n\n"
-            f"{history}\n\n"
-            f"Введите ваш ответ:",
-            self.keyboards.back_keyboard()
-        )
+        session = self.db.get_session()
+        try:
+            from database import Ticket
+            ticket = session.query(Ticket).filter(Ticket.id == ticket_id).first()
+            
+            if not ticket:
+                self.send_message(admin_id, "❌ Тикет не найден")
+                return
+            
+            if ticket.status == 'closed':
+                self.send_message(admin_id, "❌ Тикет уже закрыт")
+                return
+            
+            messages = self.db.get_ticket_messages(ticket_id)
+            history = "История тикета:\n\n"
+            for msg in messages[-5:]:
+                sender = "Пользователь" if not msg.is_admin else "Вы"
+                history += f"{sender}: {msg.message[:100]}\n"
+            
+            self.user_states[admin_id] = f'ticket_reply_{ticket_id}'
+            
+            self.send_message(
+                admin_id,
+                f"✏️ Ответ на тикет #{ticket_id}\n\n"
+                f"{history}\n\n"
+                f"Введите ваш ответ:",
+                self.keyboards.back_keyboard()
+            )
+        finally:
+            session.close()
     
     def reply_to_ticket(self, admin_id, ticket_id, message):
         """Отправка ответа на тикет (админ)"""
         try:
             log_error(f"Админ {admin_id} отвечает на тикет {ticket_id}: {message}")
             
-            ticket = self.db.get_ticket(ticket_id)
-            
-            if not ticket:
-                self.send_message(admin_id, "❌ Тикет не найден")
-                del self.user_states[admin_id]
-                return
-            
-            if ticket.status == 'closed':
-                self.send_message(admin_id, "❌ Тикет уже закрыт")
-                del self.user_states[admin_id]
-                return
-            
-            # Сохраняем ответ в БД
-            self.db.add_ticket_message(ticket_id, admin_id, message, is_admin=True)
-            
-            # Отправляем пользователю
-            user_message = (
-                f"📬 Новый ответ по тикету #{ticket_id}\n\n"
-                f"👨‍💼 Администратор:\n{message}\n\n"
-                f"⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
-                f"Чтобы ответить, создайте новый тикет или напишите в этот."
-            )
-            
+            session = self.db.get_session()
             try:
-                self.send_message(ticket.user.vk_id, user_message, self.keyboards.tickets_menu_keyboard())
-                self.send_message(
-                    admin_id,
-                    f"✅ Ответ отправлен пользователю @id{ticket.user.vk_id}",
-                    self.keyboards.admin_keyboard()
+                from database import Ticket
+                ticket = session.query(Ticket).filter(Ticket.id == ticket_id).first()
+                
+                if not ticket:
+                    self.send_message(admin_id, "❌ Тикет не найден")
+                    return
+                
+                if ticket.status == 'closed':
+                    self.send_message(admin_id, "❌ Тикет уже закрыт")
+                    return
+                
+                user_vk_id = ticket.user.vk_id
+                
+                self.db.add_ticket_message(ticket_id, admin_id, message, is_admin=True)
+                
+                user_message = (
+                    f"📬 Новый ответ по тикету #{ticket_id}\n\n"
+                    f"👨‍💼 Администратор:\n{message}\n\n"
+                    f"⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
+                    f"Чтобы ответить, создайте новый тикет."
                 )
-                log_error(f"✅ Ответ на тикет {ticket_id} отправлен пользователю")
-            except Exception as e:
-                log_error(f"❌ Ошибка отправки ответа пользователю: {e}")
-                self.send_message(admin_id, "❌ Не удалось отправить ответ пользователю")
+                
+                try:
+                    self.send_message(user_vk_id, user_message, self.keyboards.tickets_menu_keyboard())
+                    self.send_message(
+                        admin_id,
+                        f"✅ Ответ отправлен пользователю @id{user_vk_id}",
+                        self.keyboards.admin_keyboard()
+                    )
+                    log_error(f"✅ Ответ на тикет {ticket_id} отправлен пользователю {user_vk_id}")
+                except Exception as e:
+                    log_error(f"❌ Ошибка отправки ответа пользователю: {e}")
+                    self.send_message(admin_id, "❌ Не удалось отправить ответ пользователю")
+                
+            finally:
+                session.close()
             
-            # Очищаем состояние
-            del self.user_states[admin_id]
-            
+            if admin_id in self.user_states:
+                del self.user_states[admin_id]
+                
         except Exception as e:
             log_error(f"❌ Ошибка reply_to_ticket: {e}")
             log_error(traceback.format_exc())
@@ -523,21 +533,27 @@ class HostileRustBot:
         try:
             log_error(f"Админ {admin_id} закрывает тикет {ticket_id}")
             
-            ticket = self.db.get_ticket(ticket_id)
-            
-            if not ticket:
-                self.send_message(admin_id, "❌ Тикет не найден")
-                return
-            
-            if ticket.status == 'closed':
-                self.send_message(admin_id, "❌ Тикет уже закрыт")
-                return
+            session = self.db.get_session()
+            try:
+                from database import Ticket
+                ticket = session.query(Ticket).filter(Ticket.id == ticket_id).first()
+                
+                if not ticket:
+                    self.send_message(admin_id, "❌ Тикет не найден")
+                    return
+                
+                if ticket.status == 'closed':
+                    self.send_message(admin_id, "❌ Тикет уже закрыт")
+                    return
+                
+                user_vk_id = ticket.user.vk_id
+            finally:
+                session.close()
             
             if self.db.close_ticket(ticket_id):
-                # Уведомляем пользователя
                 try:
                     self.send_message(
-                        ticket.user.vk_id,
+                        user_vk_id,
                         f"🔒 Тикет #{ticket_id} закрыт администратором\n\n"
                         f"Если у вас остались вопросы, создайте новый тикет.",
                         self.keyboards.tickets_menu_keyboard()
@@ -545,13 +561,11 @@ class HostileRustBot:
                 except:
                     pass
                 
-                # Уведомляем админа
                 self.send_message(
                     admin_id,
                     f"✅ Тикет #{ticket_id} успешно закрыт",
                     self.keyboards.admin_keyboard()
                 )
-                
                 log_error(f"✅ Тикет {ticket_id} закрыт")
             else:
                 self.send_message(admin_id, "❌ Не удалось закрыть тикет")
@@ -575,11 +589,10 @@ class HostileRustBot:
             message = "🎫 ОТКРЫТЫЕ ТИКЕТЫ 🎫\n\n"
             
             for ticket in tickets:
-                # Получаем последнее сообщение
                 messages = self.db.get_ticket_messages(ticket.id)
                 last_msg = messages[-1] if messages else None
                 
-                message += f"**#{ticket.id}** от @id{ticket.user.vk_id}\n"
+                message += f"#{ticket.id} от @id{ticket.user.vk_id}\n"
                 message += f"📝 {ticket.title}\n"
                 message += f"📅 {ticket.created_at.strftime('%d.%m.%Y %H:%M')}\n"
                 if last_msg:
@@ -587,13 +600,11 @@ class HostileRustBot:
                     message += f"💬 {sender} {last_msg.message[:100]}\n"
                 message += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
             
-            # Отправляем первое сообщение
             self.send_message(admin_id, message[:4000])
             
-            # Отправляем второе с кнопками для каждого тикета
             if len(tickets) > 0:
                 keyboard = VkKeyboard(inline=True)
-                for ticket in tickets[:5]:  # Максимум 5 кнопок
+                for ticket in tickets[:5]:
                     keyboard.add_button(
                         f'✏️ Ответить #{ticket.id}',
                         color=VkKeyboardColor.PRIMARY,
@@ -629,9 +640,9 @@ class HostileRustBot:
                 )
                 return
             
-            message = "🎁 **ДОСТУПНЫЕ ПРОМОКОДЫ** 🎁\n\n"
+            message = "🎁 ДОСТУПНЫЕ ПРОМОКОДЫ 🎁\n\n"
             for promo in promos:
-                message += f"🔑 **{promo.code}**\n"
+                message += f"🔑 {promo.code}\n"
                 message += f"📝 {promo.description}\n"
                 message += f"📊 Использован: {promo.uses} раз\n"
                 message += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
@@ -655,7 +666,7 @@ class HostileRustBot:
                     if success:
                         self.send_message(
                             user_id,
-                            f"✅ **Промокод активирован!**\n\n{result}",
+                            f"✅ Промокод активирован!\n\n{result}",
                             self.keyboards.back_keyboard()
                         )
                     else:
@@ -673,10 +684,10 @@ class HostileRustBot:
         self.user_states[admin_id] = 'waiting_promo_add'
         self.send_message(
             admin_id,
-            "➕ **ДОБАВЛЕНИЕ ПРОМОКОДА**\n\n"
+            "➕ ДОБАВЛЕНИЕ ПРОМОКОДА\n\n"
             "Введите промокод и описание в формате:\n"
-            "`КОД | Описание`\n\n"
-            "Пример: `WIPE2024 | Набор ресурсов после вайпа`",
+            "КОД | Описание\n\n"
+            "Пример: WIPE2024 | Набор ресурсов после вайпа",
             self.keyboards.back_keyboard()
         )
     
@@ -696,7 +707,7 @@ class HostileRustBot:
             
             self.send_message(
                 admin_id,
-                f"✅ **Промокод добавлен!**\n\n"
+                f"✅ Промокод добавлен!\n\n"
                 f"🔑 Код: {code}\n"
                 f"📝 Описание: {description}",
                 self.keyboards.admin_keyboard()
@@ -717,8 +728,8 @@ class HostileRustBot:
             )
             return
         
-        message = "➖ **УДАЛЕНИЕ ПРОМОКОДА**\n\n"
-        message += "**Активные промокоды:**\n"
+        message = "➖ УДАЛЕНИЕ ПРОМОКОДА\n\n"
+        message += "Активные промокоды:\n"
         for promo in promos:
             message += f"🔑 {promo.code} — {promo.description}\n"
         
@@ -751,7 +762,7 @@ class HostileRustBot:
         """Админ-меню"""
         self.send_message(
             admin_id,
-            "👑 **АДМИН-ПАНЕЛЬ** 👑\n\nВыберите действие:",
+            "👑 АДМИН-ПАНЕЛЬ 👑\n\nВыберите действие:",
             self.keyboards.admin_keyboard()
         )
     
@@ -765,11 +776,11 @@ class HostileRustBot:
             total_promo_uses = session.query(PromoUsage).count() if hasattr(self.db, 'PromoUsage') else 0
             session.close()
             
-            message = "📊 **СТАТИСТИКА БОТА** 📊\n\n"
-            message += f"👥 **Пользователей:** {users_count}\n"
-            message += f"🎁 **Активных промокодов:** {active_promos}\n"
-            message += f"📈 **Использований промо:** {total_promo_uses}\n"
-            message += f"🎫 **Открытых тикетов:** {open_tickets}\n"
+            message = "📊 СТАТИСТИКА БОТА 📊\n\n"
+            message += f"👥 Пользователей: {users_count}\n"
+            message += f"🎁 Активных промокодов: {active_promos}\n"
+            message += f"📈 Использований промо: {total_promo_uses}\n"
+            message += f"🎫 Открытых тикетов: {open_tickets}\n"
             
             self.send_message(admin_id, message, self.keyboards.admin_keyboard())
         except Exception as e:
@@ -782,7 +793,7 @@ class HostileRustBot:
         self.user_states[admin_id] = 'waiting_broadcast'
         self.send_message(
             admin_id,
-            f"📨 **РАССЫЛКА**\n\n"
+            f"📨 РАССЫЛКА\n\n"
             f"Всего подписчиков: {len(users)}\n\n"
             f"Введите сообщение для рассылки (или /cancel для отмены):",
             self.keyboards.back_keyboard()
@@ -808,7 +819,7 @@ class HostileRustBot:
             
             for user in users:
                 try:
-                    self.send_message(user.vk_id, f"📢 **РАССЫЛКА**\n\n{message}")
+                    self.send_message(user.vk_id, f"📢 РАССЫЛКА\n\n{message}")
                     sent += 1
                 except:
                     failed += 1
@@ -817,7 +828,7 @@ class HostileRustBot:
             
             self.send_message(
                 admin_id,
-                f"📊 **РАССЫЛКА ЗАВЕРШЕНА**\n\n"
+                f"📊 РАССЫЛКА ЗАВЕРШЕНА\n\n"
                 f"✅ Отправлено: {sent}\n"
                 f"❌ Ошибок: {failed}",
                 self.keyboards.admin_keyboard()
@@ -832,8 +843,8 @@ class HostileRustBot:
         try:
             users = self.db.get_all_users()
             
-            message = f"👥 **ПОЛЬЗОВАТЕЛИ** (всего: {len(users)})\n\n"
-            message += "**Последние 10:**\n"
+            message = f"👥 ПОЛЬЗОВАТЕЛИ (всего: {len(users)})\n\n"
+            message += "Последние 10:\n"
             
             for user in sorted(users, key=lambda x: x.registered_at, reverse=True)[:10]:
                 message += f"• @id{user.vk_id} ({user.first_name} {user.last_name})\n"
@@ -847,14 +858,14 @@ class HostileRustBot:
     
     def show_server_info(self, user_id):
         """Информация о серверах"""
-        info = "🖥 **СЕРВЕРА HOSTILE RUST**\n\n"
+        info = "🖥 СЕРВЕРА HOSTILE RUST\n\n"
         info += "🔴 Ведутся технические работы\n"
         info += "Скоро информация появится!"
         self.send_message(user_id, info, self.keyboards.back_keyboard())
     
     def show_rules(self, user_id):
         """Правила сервера"""
-        rules_text = "📜 **ПРАВИЛА СЕРВЕРА HOSTILE RUST** 📜\n\n"
+        rules_text = "📜 ПРАВИЛА СЕРВЕРА HOSTILE RUST 📜\n\n"
         rules_text += "\n".join(RULES)
         
         if len(rules_text) > 4000:
@@ -867,14 +878,14 @@ class HostileRustBot:
     
     def show_shop(self, user_id):
         """Магазин"""
-        message = "🛒 **МАГАЗИН HOSTILE RUST** 🛒\n\n"
+        message = "🛒 МАГАЗИН HOSTILE RUST 🛒\n\n"
         message += f"{SHOP_URL}\n\n"
         message += "Нажмите кнопку ниже, чтобы перейти в магазин!"
         self.send_message(user_id, message, self.keyboards.shop_keyboard())
     
     def show_wipe_info(self, user_id):
         """Информация о вайпе"""
-        message = "🔄 **ИНФОРМАЦИЯ О ВАЙПЕ** 🔄\n\n"
+        message = "🔄 ИНФОРМАЦИЯ О ВАЙПЕ 🔄\n\n"
         message += f"📅 Расписание: {WIPE_SCHEDULE}"
         self.send_message(user_id, message, self.keyboards.back_keyboard())
     
@@ -892,7 +903,6 @@ class HostileRustBot:
             try:
                 for event in self.longpoll.listen():
                     if event.type == VkEventType.MESSAGE_NEW and event.to_me:
-                        # Получаем payload
                         payload = None
                         try:
                             if hasattr(event, 'payload'):
