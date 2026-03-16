@@ -857,11 +857,59 @@ class HostileRustBot:
     # ========== ИНФОРМАЦИОННЫЕ ФУНКЦИИ ==========
     
     def show_server_info(self, user_id):
-        """Информация о серверах"""
-        info = "🖥 СЕРВЕРА HOSTILE RUST\n\n"
-        info += "🔴 Ведутся технические работы\n"
-        info += "Скоро информация появится!"
-        self.send_message(user_id, info, self.keyboards.back_keyboard())
+    """Информация о серверах с IP адресами"""
+    try:
+        message = "🖥 СЕРВЕРА HOSTILE RUST 🖥\n\n"
+        
+        for key, server in SERVERS.items():
+            # Статус сервера
+            status = "🟢 ONLINE"
+            
+            message += f"{server['name']}\n"
+            message += f"{status}\n"
+            message += f"📌 IP: {server['ip']}\n"
+            message += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
+        
+        message += "💡 Как подключиться:\n"
+        message += "1. Копируйте IP адрес выше\n"
+        message += "2. В игре нажмите F1\n"
+        message += "3. Введите: client.connect IP\n"
+        message += "4. Нажмите Enter\n\n"
+        message += "🔗 Мониторинг: https://hostilerust.gamestores.app/"
+        
+        # Создаем клавиатуру
+        keyboard = VkKeyboard(inline=True)
+        
+        # Кнопки для копирования IP
+        for key, server in SERVERS.items():
+            keyboard.add_button(
+                f'📋 Копировать {server["name"]}',
+                color=VkKeyboardColor.PRIMARY,
+                payload={'command': f'copy_ip_{key}'}
+            )
+            keyboard.add_line()
+        
+        keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY,
+                          payload={'command': 'back_to_main'})
+        
+        self.send_message(user_id, message, keyboard)
+        
+    except Exception as e:
+        log_error(f"❌ Ошибка show_server_info: {e}")
+        self.send_message(user_id, "❌ Ошибка загрузки информации о серверах", self.keyboards.back_keyboard())
+
+def handle_copy_ip(self, user_id, server_key):
+    """Обработка копирования IP"""
+    try:
+        server = SERVERS.get(server_key)
+        if server:
+            self.send_message(
+                user_id,
+                f"📋 IP адрес сервера {server['name']}:\n{server['ip']}\n\nПросто выделите и скопируйте текст выше!",
+                self.keyboards.back_keyboard()
+            )
+    except Exception as e:
+        log_error(f"❌ Ошибка handle_copy_ip: {e}")
     
     def show_rules(self, user_id):
         """Правила сервера"""
