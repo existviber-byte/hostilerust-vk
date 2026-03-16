@@ -1,5 +1,5 @@
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
-from config import SHOP_URL
+import config  # Импортируем весь модуль
 
 class Keyboards:
     @staticmethod
@@ -49,7 +49,8 @@ class Keyboards:
     @staticmethod
     def shop_keyboard():
         keyboard = VkKeyboard(inline=True)
-        keyboard.add_openlink_button('🛒 Открыть магазин', SHOP_URL)
+        # Используем config.SHOP_URL
+        keyboard.add_openlink_button('🛒 Открыть магазин', config.SHOP_URL)
         keyboard.add_line()
         keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY,
                           payload={'command': 'back_to_main'})
