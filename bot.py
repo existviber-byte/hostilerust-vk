@@ -166,7 +166,15 @@ class HostileRustBot:
             msg = message.lower().strip()
             log_error(f"Текстовая команда: '{msg}'")
             
-            # Основные команды
+            # СПЕЦИАЛЬНЫЕ КОМАНДЫ (для кнопок меню поддержки)
+            if msg in ['➕ создать тикет', 'создать тикет']:
+                self.start_ticket_creation(user_id)
+                return
+            elif msg in ['👤 мои тикеты', 'мои тикеты']:
+                self.show_my_tickets(user_id)
+                return
+            
+            # ОСНОВНЫЕ КОМАНДЫ (для всех пользователей)
             if msg in ['начать', 'start', 'меню', 'привет', 'старт']:
                 self.register_user(user_id)
                 self.send_main_menu(user_id)
@@ -182,10 +190,8 @@ class HostileRustBot:
                 self.show_shop(user_id)
             elif msg in ['🔄 вайп', 'вайп']:
                 self.show_wipe_info(user_id)
-            elif msg in ['👤 мои тикеты', 'мои тикеты']:
-                self.show_my_tickets(user_id)
             
-            # Админские команды
+            # АДМИНСКИЕ КОМАНДЫ (только для админов)
             elif user_id in ADMIN_IDS:
                 if msg in ['админ', 'admin']:
                     self.show_admin_menu(user_id)
@@ -203,8 +209,22 @@ class HostileRustBot:
                     self.show_users_list(user_id)
                 elif msg in ['◀️ назад', 'назад']:
                     self.send_main_menu(user_id)
+                # Добавляем команды из админской клавиатуры тикетов
+                elif msg.startswith('✏️ ответить'):
+                    # Формат: "✏️ Ответить на тикет #123"
+                    try:
+                        ticket_id = int(msg.split('#')[1])
+                        self.start_admin_reply(user_id, ticket_id)
+                    except:
+                        pass
+                elif msg.startswith('❌ закрыть'):
+                    try:
+                        ticket_id = int(msg.split('#')[1])
+                        self.close_ticket_admin(user_id, ticket_id)
+                    except:
+                        pass
             
-            # Если ничего не подошло - игнорируем
+            # Если ничего не подошло
             else:
                 log_error(f"Неизвестная команда: {msg}")
                 
@@ -257,13 +277,13 @@ class HostileRustBot:
             open_tickets = [t for t in tickets if t.status == 'open']
             closed_tickets = [t for t in tickets if t.status == 'closed']
             
-            message = "🎫 **ЦЕНТР ПОДДЕРЖКИ** 🎫\n\n"
+            message = "🎫 ЦЕНТР ПОДДЕРЖКИ 🎫\n\n"
             message += f"📊 Всего обращений: {len(tickets)}\n"
             message += f"🟢 Открытых: {len(open_tickets)}\n"
             message += f"🔴 Закрытых: {len(closed_tickets)}\n\n"
             
             if open_tickets:
-                message += "**Последние открытые тикеты:**\n"
+                message += "Последние открытые тикеты:\n"
                 for ticket in open_tickets[:3]:
                     message += f"• #{ticket.id}: {ticket.title[:50]}...\n"
                 message += "\n"
@@ -285,7 +305,7 @@ class HostileRustBot:
                 )
                 return
             
-            message = "📋 **МОИ ТИКЕТЫ** 📋\n\n"
+            message = "📋 МОИ ТИКЕТЫ 📋\n\n"
             
             for ticket in tickets[-10:]:  # Последние 10
                 status_emoji = "🟢" if ticket.status == 'open' else "🔴"
@@ -326,7 +346,7 @@ class HostileRustBot:
             message += f"📅 Создан: {ticket.created_at.strftime('%d.%m.%Y %H:%M')}\n"
             message += f"📊 Статус: {ticket.status}\n\n"
             
-            message += "**Переписка:**\n"
+            message += "Переписка:\n"
             for msg in messages:
                 sender = "👤 Вы" if msg.user_id == user_id else "👑 Админ"
                 time_str = msg.created_at.strftime('%H:%M %d.%m')
@@ -344,7 +364,7 @@ class HostileRustBot:
         self.user_states[user_id] = 'waiting_ticket'
         self.send_message(
             user_id,
-            "📝 **СОЗДАНИЕ ТИКЕТА**\n\n"
+            "📝 СОЗДАНИЕ ТИКЕТА\n\n"
             "Опишите вашу проблему подробно:\n"
             "• Что случилось?\n"
             "• Когда это произошло?\n"
@@ -371,7 +391,7 @@ class HostileRustBot:
                 # Уведомляем пользователя
                 self.send_message(
                     user_id,
-                    f"✅ **Тикет #{ticket_id} создан!**\n\n"
+                    f"✅ Тикет #{ticket_id} создан!\n\n"
                     f"Ваше обращение:\n{description}\n\n"
                     f"Администратор скоро ответит.",
                     self.keyboards.tickets_menu_keyboard()
@@ -385,10 +405,10 @@ class HostileRustBot:
                     user_name = f"id{user_id}"
                 
                 admin_message = (
-                    f"🎫 **НОВЫЙ ТИКЕТ #{ticket_id}**\n\n"
+                    f"🎫 НОВЫЙ ТИКЕТ #{ticket_id}\n\n"
                     f"👤 От: {user_name} (@id{user_id})\n"
                     f"📝 Тема: {description[:100]}\n\n"
-                    f"**Полное описание:**\n{description}\n\n"
+                    f"Полное описание:\n{description}\n\n"
                     f"Для ответа нажмите кнопку ниже:"
                 )
                 
@@ -437,14 +457,14 @@ class HostileRustBot:
         
         # Показываем историю переписки
         messages = self.db.get_ticket_messages(ticket_id)
-        history = "📜 **История тикета:**\n\n"
+        history = "📜 История тикета:\n\n"
         for msg in messages[-5:]:  # Последние 5 сообщений
             sender = "Пользователь" if not msg.is_admin else "Вы"
             history += f"{sender}: {msg.message[:100]}\n"
         
         self.send_message(
             admin_id,
-            f"✏️ **Ответ на тикет #{ticket_id}**\n\n"
+            f"✏️ Ответ на тикет #{ticket_id}\n\n"
             f"{history}\n\n"
             f"Введите ваш ответ:",
             self.keyboards.back_keyboard()
@@ -472,7 +492,7 @@ class HostileRustBot:
             
             # Отправляем пользователю
             user_message = (
-                f"📬 **Новый ответ по тикету #{ticket_id}**\n\n"
+                f"📬 Новый ответ по тикету #{ticket_id}\n\n"
                 f"👨‍💼 Администратор:\n{message}\n\n"
                 f"⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
                 f"Чтобы ответить, создайте новый тикет или напишите в этот."
@@ -518,7 +538,7 @@ class HostileRustBot:
                 try:
                     self.send_message(
                         ticket.user.vk_id,
-                        f"🔒 **Тикет #{ticket_id} закрыт администратором**\n\n"
+                        f"🔒 Тикет #{ticket_id} закрыт администратором\n\n"
                         f"Если у вас остались вопросы, создайте новый тикет.",
                         self.keyboards.tickets_menu_keyboard()
                     )
@@ -552,7 +572,7 @@ class HostileRustBot:
                 )
                 return
             
-            message = "🎫 **ОТКРЫТЫЕ ТИКЕТЫ** 🎫\n\n"
+            message = "🎫 ОТКРЫТЫЕ ТИКЕТЫ 🎫\n\n"
             
             for ticket in tickets:
                 # Получаем последнее сообщение
