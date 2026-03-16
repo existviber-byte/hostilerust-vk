@@ -47,7 +47,7 @@ class Ticket(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey('users.id'))
     title = Column(String)
-    status = Column(String, default='open')  # open, in_progress, closed
+    status = Column(String, default='open')
     created_at = Column(DateTime, default=datetime.now)
     closed_at = Column(DateTime)
     
@@ -85,6 +85,10 @@ class Database:
                 session.commit()
                 print(f"Новый пользователь: {first_name} {last_name} (ID: {vk_id})")
             return user
+        except Exception as e:
+            print(f"Ошибка add_user: {e}")
+            session.rollback()
+            return None
         finally:
             session.close()
     
@@ -109,6 +113,10 @@ class Database:
             session.add(promo)
             session.commit()
             return promo
+        except Exception as e:
+            print(f"Ошибка add_promo: {e}")
+            session.rollback()
+            return None
         finally:
             session.close()
     
@@ -120,6 +128,10 @@ class Database:
                 session.delete(promo)
                 session.commit()
                 return True
+            return False
+        except Exception as e:
+            print(f"Ошибка delete_promo: {e}")
+            session.rollback()
             return False
         finally:
             session.close()
@@ -152,6 +164,10 @@ class Database:
             promo.uses += 1
             session.commit()
             return True, "Промокод успешно активирован"
+        except Exception as e:
+            print(f"Ошибка use_promo: {e}")
+            session.rollback()
+            return False, "Ошибка при активации промокода"
         finally:
             session.close()
     
@@ -163,12 +179,19 @@ class Database:
                 ticket = Ticket(user_id=user.id, title=title)
                 session.add(ticket)
                 session.commit()
+                print(f"Тикет создан: ID={ticket.id}, user_id={user.id}")
                 return ticket.id
+            print(f"Пользователь {vk_id} не найден")
+            return None
+        except Exception as e:
+            print(f"Ошибка create_ticket: {e}")
+            session.rollback()
             return None
         finally:
             session.close()
     
     def add_ticket_message(self, ticket_id, user_id, message, is_admin=False):
+        """Добавление сообщения в тикет"""
         session = self.get_session()
         try:
             msg = TicketMessage(
@@ -179,13 +202,26 @@ class Database:
             )
             session.add(msg)
             session.commit()
+            print(f"Сообщение добавлено в тикет {ticket_id}")
+            return True  # ✅ ВАЖНО: возвращаем True при успехе
+        except Exception as e:
+            print(f"Ошибка add_ticket_message: {e}")
+            session.rollback()
+            return False  # ✅ ВАЖНО: возвращаем False при ошибке
         finally:
             session.close()
     
     def get_ticket(self, ticket_id):
         session = self.get_session()
         try:
-            return session.query(Ticket).filter_by(id=ticket_id).first()
+            ticket = session.query(Ticket).filter_by(id=ticket_id).first()
+            if ticket:
+                # Принудительно загружаем связанного пользователя
+                _ = ticket.user
+            return ticket
+        except Exception as e:
+            print(f"Ошибка get_ticket: {e}")
+            return None
         finally:
             session.close()
     
@@ -197,7 +233,12 @@ class Database:
                 ticket.status = 'closed'
                 ticket.closed_at = datetime.now()
                 session.commit()
+                print(f"Тикет {ticket_id} закрыт")
                 return True
+            return False
+        except Exception as e:
+            print(f"Ошибка close_ticket: {e}")
+            session.rollback()
             return False
         finally:
             session.close()
@@ -207,7 +248,14 @@ class Database:
         try:
             user = session.query(User).filter_by(vk_id=vk_id).first()
             if user:
-                return session.query(Ticket).filter_by(user_id=user.id).order_by(Ticket.created_at.desc()).all()
+                tickets = session.query(Ticket).filter_by(user_id=user.id).order_by(Ticket.created_at.desc()).all()
+                # Принудительно загружаем сообщения для каждого тикета
+                for ticket in tickets:
+                    _ = ticket.messages
+                return tickets
+            return []
+        except Exception as e:
+            print(f"Ошибка get_user_tickets: {e}")
             return []
         finally:
             session.close()
@@ -215,13 +263,25 @@ class Database:
     def get_open_tickets(self):
         session = self.get_session()
         try:
-            return session.query(Ticket).filter_by(status='open').all()
+            tickets = session.query(Ticket).filter_by(status='open').all()
+            # Принудительно загружаем пользователей для каждого тикета
+            for ticket in tickets:
+                _ = ticket.user
+                _ = ticket.messages
+            return tickets
+        except Exception as e:
+            print(f"Ошибка get_open_tickets: {e}")
+            return []
         finally:
             session.close()
     
     def get_ticket_messages(self, ticket_id):
         session = self.get_session()
         try:
-            return session.query(TicketMessage).filter_by(ticket_id=ticket_id).order_by(TicketMessage.created_at).all()
+            messages = session.query(TicketMessage).filter_by(ticket_id=ticket_id).order_by(TicketMessage.created_at).all()
+            return messages
+        except Exception as e:
+            print(f"Ошибка get_ticket_messages: {e}")
+            return []
         finally:
             session.close()
