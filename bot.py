@@ -8,6 +8,7 @@ import time
 import sys
 import os
 import traceback
+import json
 
 # ==== ПРОСТОЕ ЛОГИРОВАНИЕ В ФАЙЛ ====
 log_file = open('bot_errors.log', 'a', encoding='utf-8')
@@ -16,7 +17,7 @@ def log_error(text):
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     log_file.write(f"[{timestamp}] {text}\n")
     log_file.flush()
-    print(text)  # Вывод в консоль тоже
+    print(text)
 
 log_error("="*50)
 log_error("ЗАПУСК БОТА HOSTILE RUST")
@@ -43,8 +44,6 @@ try:
 except Exception as e:
     log_error(f"❌ Ошибка загрузки keyboards: {e}")
     log_error(traceback.format_exc())
-
-# from monitor import monitor  # ВРЕМЕННО отключаем
 
 class HostileRustBot:
     def __init__(self):
@@ -107,7 +106,7 @@ class HostileRustBot:
     
     def handle_message(self, user_id, message, payload=None):
         """Обработка входящих сообщений"""
-        log_error(f"Получено сообщение от {user_id}: {message}")
+        log_error(f"Получено сообщение от {user_id}: '{message}', payload={payload}")
         
         try:
             # Получаем информацию о пользователе для приветствия
@@ -140,7 +139,7 @@ class HostileRustBot:
                     return
             
             # Обработка payload (кнопок)
-            if payload:
+            if payload and isinstance(payload, dict):
                 command = payload.get('command')
                 log_error(f"Payload команда: {command}")
                 
@@ -155,40 +154,40 @@ class HostileRustBot:
                     return
             
             # Обработка текстовых команд
-            msg = message.lower()
-            log_error(f"Текстовая команда: {msg}")
+            msg = message.lower().strip()
+            log_error(f"Текстовая команда: '{msg}'")
             
             # Основные команды
-            if msg == '🎁 промокоды':
+            if msg == '🎁 промокоды' or msg == 'промокоды':
                 self.show_promocodes(user_id)
-            elif msg == '🖥 сервера':
+            elif msg == '🖥 сервера' or msg == 'сервера' or msg == 'сервер':
                 self.show_server_info(user_id)
-            elif msg == '📜 правила':
+            elif msg == '📜 правила' or msg == 'правила':
                 self.show_rules(user_id)
-            elif msg == '🎫 поддержка':
+            elif msg == '🎫 поддержка' or msg == 'поддержка' or msg == 'тикеты':
                 self.show_tickets_menu(user_id)
-            elif msg == '🛒 магазин':
+            elif msg == '🛒 магазин' or msg == 'магазин':
                 self.show_shop(user_id)
-            elif msg == '🔄 вайп':
+            elif msg == '🔄 вайп' or msg == 'вайп':
                 self.show_wipe_info(user_id)
             
             # Админские команды
             elif user_id in ADMIN_IDS:
                 if msg == 'админ':
                     self.show_admin_menu(user_id)
-                elif msg == '📊 статистика':
+                elif msg == '📊 статистика' or msg == 'статистика':
                     self.show_stats(user_id)
-                elif msg == '📨 рассылка':
+                elif msg == '📨 рассылка' or msg == 'рассылка':
                     self.start_broadcast(user_id)
-                elif msg == '➕ добавить промо':
+                elif msg == '➕ добавить промо' or msg == 'добавить промо':
                     self.start_add_promo(user_id)
-                elif msg == '➖ удалить промо':
+                elif msg == '➖ удалить промо' or msg == 'удалить промо':
                     self.start_delete_promo(user_id)
-                elif msg == '🎫 тикеты админ':
+                elif msg == '🎫 тикеты админ' or msg == 'тикеты админ':
                     self.show_admin_tickets(user_id)
-                elif msg == '👥 пользователи':
+                elif msg == '👥 пользователи' or msg == 'пользователи':
                     self.show_users_list(user_id)
-                elif msg == '◀️ назад':
+                elif msg == '◀️ назад' or msg == 'назад':
                     self.send_main_menu(user_id)
             
             # Проверка на ввод промокода
@@ -225,11 +224,10 @@ class HostileRustBot:
             try:
                 user_info = self.vk_session.users.get(user_ids=user_id)[0]
                 name = user_info['first_name']
-                welcome = f"🦀 **Добро пожаловать, {name}!** 🦀\n\n"
-                welcome += "Это официальный бот **Hostile Rust**.\n"
-                welcome += "Выберите нужный раздел в меню ниже:"
+                welcome = f"🦀 Добро пожаловать, {name}! 🦀\n\n"
+                welcome += "Выберите действие:"
             except:
-                welcome = "🦀 **Добро пожаловать в Hostile Rust!** 🦀\n\nВыберите действие:"
+                welcome = "🦀 Добро пожаловать в Hostile Rust! 🦀\n\nВыберите действие:"
             
             self.send_message(user_id, welcome, self.keyboards.main_keyboard())
             log_error(f"✅ Меню отправлено {user_id}")
@@ -240,7 +238,7 @@ class HostileRustBot:
     def show_server_info(self, user_id):
         """Временная заглушка для информации о серверах"""
         try:
-            info = "🖥 **СЕРВЕРА HOSTILE RUST**\n\n"
+            info = "🖥 СЕРВЕРА HOSTILE RUST\n\n"
             info += "🔴 Ведутся технические работы\n"
             info += "Скоро информация появится!"
             self.send_message(user_id, info, self.keyboards.back_keyboard())
@@ -250,7 +248,7 @@ class HostileRustBot:
     def show_rules(self, user_id):
         """Правила сервера"""
         try:
-            rules_text = "📜 **ПРАВИЛА СЕРВЕРА HOSTILE RUST** 📜\n\n"
+            rules_text = "📜 ПРАВИЛА СЕРВЕРА HOSTILE RUST 📜\n\n"
             rules_text += "\n".join(RULES)
             
             if len(rules_text) > 4000:
@@ -266,7 +264,7 @@ class HostileRustBot:
     def show_shop(self, user_id):
         """Магазин"""
         try:
-            message = "🛒 **МАГАЗИН HOSTILE RUST** 🛒\n\n"
+            message = "🛒 МАГАЗИН HOSTILE RUST 🛒\n\n"
             message += f"{SHOP_URL}\n\n"
             message += "Нажмите кнопку ниже, чтобы перейти в магазин!"
             self.send_message(user_id, message, self.keyboards.shop_keyboard())
@@ -276,8 +274,8 @@ class HostileRustBot:
     def show_wipe_info(self, user_id):
         """Информация о вайпе"""
         try:
-            message = "🔄 **ИНФОРМАЦИЯ О ВАЙПЕ** 🔄\n\n"
-            message += f"📅 **Расписание:** {WIPE_SCHEDULE}"
+            message = "🔄 ИНФОРМАЦИЯ О ВАЙПЕ 🔄\n\n"
+            message += f"📅 Расписание: {WIPE_SCHEDULE}"
             self.send_message(user_id, message, self.keyboards.back_keyboard())
         except Exception as e:
             log_error(f"❌ Ошибка show_wipe_info: {e}")
@@ -295,9 +293,9 @@ class HostileRustBot:
                 )
                 return
             
-            message = "🎁 **ДОСТУПНЫЕ ПРОМОКОДЫ** 🎁\n\n"
+            message = "🎁 ДОСТУПНЫЕ ПРОМОКОДЫ 🎁\n\n"
             for promo in promos:
-                message += f"🔑 **{promo.code}**\n"
+                message += f"🔑 {promo.code}\n"
                 message += f"📝 {promo.description}\n"
                 message += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
             
@@ -320,7 +318,7 @@ class HostileRustBot:
                     if success:
                         self.send_message(
                             user_id,
-                            f"✅ **Промокод активирован!**\n\n{result}",
+                            f"✅ Промокод активирован!\n\n{result}",
                             self.keyboards.back_keyboard()
                         )
                     else:
@@ -336,7 +334,7 @@ class HostileRustBot:
     def show_tickets_menu(self, user_id):
         """Меню тикетов"""
         try:
-            message = "🎫 **ЦЕНТР ПОДДЕРЖКИ** 🎫\n\n"
+            message = "🎫 ЦЕНТР ПОДДЕРЖКИ 🎫\n\n"
             message += "Нажмите кнопку ниже, чтобы создать тикет."
             self.send_message(user_id, message, self.keyboards.tickets_keyboard())
         except Exception as e:
@@ -375,7 +373,7 @@ class HostileRustBot:
         except Exception as e:
             log_error(f"❌ Ошибка create_ticket: {e}")
     
-    # АДМИНСКИЕ ФУНКЦИИ (упрощенные)
+    # АДМИНСКИЕ ФУНКЦИИ
     
     def show_admin_menu(self, admin_id):
         self.send_message(admin_id, "👑 АДМИН-ПАНЕЛЬ", self.keyboards.admin_keyboard())
@@ -435,7 +433,30 @@ class HostileRustBot:
             try:
                 for event in self.longpoll.listen():
                     if event.type == VkEventType.MESSAGE_NEW and event.to_me:
-                        self.handle_message(event.user_id, event.text, event.payload)
+                        # Пробуем получить payload разными способами
+                        payload = None
+                        try:
+                            # Способ 1: прямой атрибут
+                            if hasattr(event, 'payload'):
+                                payload = event.payload
+                            # Способ 2: через extra_values
+                            elif hasattr(event, 'extra_values') and 'payload' in event.extra_values:
+                                payload = event.extra_values['payload']
+                            # Способ 3: парсим из текста если это JSON
+                            elif event.text and event.text.startswith('{'):
+                                try:
+                                    payload_data = json.loads(event.text)
+                                    if isinstance(payload_data, dict):
+                                        payload = payload_data
+                                        # Если это был payload, то текст не нужен
+                                        event.text = ''
+                                except:
+                                    pass
+                        except:
+                            pass
+                        
+                        log_error(f"Событие: user={event.user_id}, text='{event.text}', payload={payload}")
+                        self.handle_message(event.user_id, event.text, payload)
             except Exception as e:
                 log_error(f"❌ Ошибка в главном цикле: {e}")
                 log_error(traceback.format_exc())
