@@ -1,0 +1,7 @@
+vk-api
+sqlalchemy
+python-dotenv
+apscheduler
+beautifulsoup4
+requests
+lxml
