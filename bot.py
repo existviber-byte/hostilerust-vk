@@ -108,7 +108,63 @@ class HostileRustBot:
         log_error(f"Получено сообщение от {user_id}: '{message}', payload={payload}")
         
         try:
-            # ===== 1. СНАЧАЛА ПРОВЕРЯЕМ СОСТОЯНИЯ ПОЛЬЗОВАТЕЛЯ =====
+            # ===== 0. ПРОВЕРЯЕМ PAYLOAD В ПЕРВУЮ ОЧЕРЕДЬ =====
+            if payload:
+                # Если payload пришел как строка, пробуем распарсить
+                if isinstance(payload, str):
+                    try:
+                        payload = json.loads(payload)
+                        log_error(f"✅ Распаршен payload из строки: {payload}")
+                    except:
+                        pass
+                
+                if isinstance(payload, dict):
+                    command = payload.get('command')
+                    log_error(f"🔥 НАЙДЕН PAYLOAD: command={command}")
+                    
+                    if command == 'back_to_main':
+                        self.send_main_menu(user_id)
+                        return
+                    elif command == 'create_ticket':
+                        self.start_ticket_creation(user_id)
+                        return
+                    elif command == 'view_tickets':
+                        self.show_my_tickets(user_id)
+                        return
+                    elif command.startswith('view_ticket_'):
+                        try:
+                            ticket_id = int(command.replace('view_ticket_', ''))
+                            self.show_ticket_details(user_id, ticket_id)
+                        except:
+                            pass
+                        return
+                    elif command == 'admin_tickets':
+                        if user_id in ADMIN_IDS:
+                            self.show_admin_tickets(user_id)
+                        return
+                    elif command.startswith('admin_reply_'):
+                        if user_id in ADMIN_IDS:
+                            try:
+                                ticket_id = int(command.replace('admin_reply_', ''))
+                                log_error(f"🔥 АДМИН {user_id} ОТВЕЧАЕТ НА ТИКЕТ {ticket_id}")
+                                self.start_admin_reply(user_id, ticket_id)
+                            except:
+                                log_error(f"❌ Ошибка парсинга ticket_id из {command}")
+                        return
+                    elif command.startswith('admin_close_'):
+                        if user_id in ADMIN_IDS:
+                            try:
+                                ticket_id = int(command.replace('admin_close_', ''))
+                                self.close_ticket_admin(user_id, ticket_id)
+                            except:
+                                pass
+                        return
+                    elif command.startswith('copy_ip_'):
+                        server_key = command.replace('copy_ip_', '')
+                        self.handle_copy_ip(user_id, server_key)
+                        return
+            
+            # ===== 1. ПРОВЕРЯЕМ СОСТОЯНИЯ ПОЛЬЗОВАТЕЛЯ =====
             if user_id in self.user_states:
                 state = self.user_states[user_id]
                 log_error(f"Состояние пользователя: {state}")
@@ -142,49 +198,14 @@ class HostileRustBot:
                     self.send_broadcast(user_id, message)
                     return
                 elif state.startswith('ticket_reply_'):
-                    ticket_id = int(state.replace('ticket_reply_', ''))
-                    self.reply_to_ticket(user_id, ticket_id, message)
+                    try:
+                        ticket_id = int(state.replace('ticket_reply_', ''))
+                        self.reply_to_ticket(user_id, ticket_id, message)
+                    except:
+                        pass
                     return
             
-            # ===== 2. ЗАТЕМ ПРОВЕРЯЕМ PAYLOAD (КНОПКИ) =====
-            if payload and isinstance(payload, dict):
-                command = payload.get('command')
-                log_error(f"Payload команда: {command}")
-                
-                if command == 'back_to_main':
-                    self.send_main_menu(user_id)
-                    return
-                elif command == 'create_ticket':
-                    self.start_ticket_creation(user_id)
-                    return
-                elif command == 'view_tickets':
-                    self.show_my_tickets(user_id)
-                    return
-                elif command.startswith('view_ticket_'):
-                    ticket_id = int(command.replace('view_ticket_', ''))
-                    self.show_ticket_details(user_id, ticket_id)
-                    return
-                elif command == 'admin_tickets':
-                    if user_id in ADMIN_IDS:
-                        self.show_admin_tickets(user_id)
-                    return
-                elif command.startswith('admin_reply_'):
-                    if user_id in ADMIN_IDS:
-                        ticket_id = int(command.replace('admin_reply_', ''))
-                        log_error(f"✅ Payload: админ {user_id} начинает ответ на тикет {ticket_id}")
-                        self.start_admin_reply(user_id, ticket_id)
-                    return
-                elif command.startswith('admin_close_'):
-                    if user_id in ADMIN_IDS:
-                        ticket_id = int(command.replace('admin_close_', ''))
-                        self.close_ticket_admin(user_id, ticket_id)
-                    return
-                elif command.startswith('copy_ip_'):
-                    server_key = command.replace('copy_ip_', '')
-                    self.handle_copy_ip(user_id, server_key)
-                    return
-            
-            # ===== 3. ЗАТЕМ ПРОВЕРЯЕМ КОМАНДЫ С ! (ДЛЯ АДМИНОВ) =====
+            # ===== 2. ПРОВЕРЯЕМ КОМАНДЫ С ! (ДЛЯ АДМИНОВ) =====
             if message.startswith('!') and user_id in ADMIN_IDS:
                 parts = message[1:].split()
                 if len(parts) >= 2:
@@ -207,7 +228,7 @@ class HostileRustBot:
                             self.send_message(user_id, "❌ Неверный формат. Используйте: !закрыть [ID]")
                 return
             
-            # ===== 4. ПОСЛЕ ВСЕГО ПРОВЕРЯЕМ ТЕКСТОВЫЕ КОМАНДЫ =====
+            # ===== 3. ПОСЛЕ ВСЕГО ПРОВЕРЯЕМ ТЕКСТОВЫЕ КОМАНДЫ =====
             msg = message.lower().strip()
             log_error(f"Текстовая команда: '{msg}'")
             
@@ -531,7 +552,7 @@ class HostileRustBot:
     
     def start_admin_reply(self, admin_id, ticket_id):
         """Начало ответа на тикет (админ)"""
-        log_error(f"✅ start_admin_reply вызвана: admin_id={admin_id}, ticket_id={ticket_id}")
+        log_error(f"🔥 start_admin_reply вызвана: admin_id={admin_id}, ticket_id={ticket_id}")
         
         session = self.db.get_session()
         try:
@@ -577,7 +598,7 @@ class HostileRustBot:
     def reply_to_ticket(self, admin_id, ticket_id, message):
         """Отправка ответа на тикет (админ)"""
         try:
-            log_error(f"✅ Админ {admin_id} отвечает на тикет {ticket_id}: {message}")
+            log_error(f"🔥 Админ {admin_id} отвечает на тикет {ticket_id}: {message}")
             
             session = self.db.get_session()
             try:
