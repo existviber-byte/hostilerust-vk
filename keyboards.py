@@ -1,4 +1,5 @@
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
+from config import SHOP_URL
 
 class Keyboards:
     @staticmethod
