@@ -108,7 +108,7 @@ class HostileRustBot:
         log_error(f"Получено сообщение от {user_id}: '{message}', payload={payload}")
         
         try:
-            # Проверяем состояния пользователя
+            # ===== 1. СНАЧАЛА ПРОВЕРЯЕМ СОСТОЯНИЯ ПОЛЬЗОВАТЕЛЯ =====
             if user_id in self.user_states:
                 state = self.user_states[user_id]
                 log_error(f"Состояние пользователя: {state}")
@@ -146,30 +146,7 @@ class HostileRustBot:
                     self.reply_to_ticket(user_id, ticket_id, message)
                     return
             
-            # Обработка команд с ! (для админов)
-            if message.startswith('!') and user_id in ADMIN_IDS:
-                parts = message[1:].split()
-                if len(parts) >= 2:
-                    cmd = parts[0].lower()
-                    if cmd == 'ответ' and len(parts) >= 3:
-                        try:
-                            ticket_id = int(parts[1])
-                            reply_text = ' '.join(parts[2:])
-                            self.user_states[user_id] = f'ticket_reply_{ticket_id}'
-                            self.reply_to_ticket(user_id, ticket_id, reply_text)
-                            return
-                        except:
-                            self.send_message(user_id, "❌ Неверный формат. Используйте: !ответ [ID] [текст]")
-                    elif cmd == 'закрыть':
-                        try:
-                            ticket_id = int(parts[1])
-                            self.close_ticket_admin(user_id, ticket_id)
-                            return
-                        except:
-                            self.send_message(user_id, "❌ Неверный формат. Используйте: !закрыть [ID]")
-                return
-            
-            # Обработка payload (кнопок)
+            # ===== 2. ЗАТЕМ ПРОВЕРЯЕМ PAYLOAD (КНОПКИ) =====
             if payload and isinstance(payload, dict):
                 command = payload.get('command')
                 log_error(f"Payload команда: {command}")
@@ -194,7 +171,7 @@ class HostileRustBot:
                 elif command.startswith('admin_reply_'):
                     if user_id in ADMIN_IDS:
                         ticket_id = int(command.replace('admin_reply_', ''))
-                        log_error(f"Админ {user_id} начинает ответ на тикет {ticket_id}")
+                        log_error(f"✅ Payload: админ {user_id} начинает ответ на тикет {ticket_id}")
                         self.start_admin_reply(user_id, ticket_id)
                     return
                 elif command.startswith('admin_close_'):
@@ -207,7 +184,30 @@ class HostileRustBot:
                     self.handle_copy_ip(user_id, server_key)
                     return
             
-            # Обработка текстовых команд
+            # ===== 3. ЗАТЕМ ПРОВЕРЯЕМ КОМАНДЫ С ! (ДЛЯ АДМИНОВ) =====
+            if message.startswith('!') and user_id in ADMIN_IDS:
+                parts = message[1:].split()
+                if len(parts) >= 2:
+                    cmd = parts[0].lower()
+                    if cmd == 'ответ' and len(parts) >= 3:
+                        try:
+                            ticket_id = int(parts[1])
+                            reply_text = ' '.join(parts[2:])
+                            self.user_states[user_id] = f'ticket_reply_{ticket_id}'
+                            self.reply_to_ticket(user_id, ticket_id, reply_text)
+                            return
+                        except:
+                            self.send_message(user_id, "❌ Неверный формат. Используйте: !ответ [ID] [текст]")
+                    elif cmd == 'закрыть':
+                        try:
+                            ticket_id = int(parts[1])
+                            self.close_ticket_admin(user_id, ticket_id)
+                            return
+                        except:
+                            self.send_message(user_id, "❌ Неверный формат. Используйте: !закрыть [ID]")
+                return
+            
+            # ===== 4. ПОСЛЕ ВСЕГО ПРОВЕРЯЕМ ТЕКСТОВЫЕ КОМАНДЫ =====
             msg = message.lower().strip()
             log_error(f"Текстовая команда: '{msg}'")
             
@@ -255,7 +255,7 @@ class HostileRustBot:
                 elif msg in ['◀️ назад', 'назад']:
                     self.send_main_menu(user_id)
             
-            # Если ничего не подошло - игнорируем, НЕ отправляем админам!
+            # Если ничего не подошло - игнорируем
             else:
                 log_error(f"Неизвестная команда от {user_id}: {msg} - игнорируем")
                 
@@ -531,7 +531,7 @@ class HostileRustBot:
     
     def start_admin_reply(self, admin_id, ticket_id):
         """Начало ответа на тикет (админ)"""
-        log_error(f"start_admin_reply вызвана: admin_id={admin_id}, ticket_id={ticket_id}")
+        log_error(f"✅ start_admin_reply вызвана: admin_id={admin_id}, ticket_id={ticket_id}")
         
         session = self.db.get_session()
         try:
@@ -546,18 +546,22 @@ class HostileRustBot:
                 self.send_message(admin_id, "❌ Тикет уже закрыт")
                 return
             
+            # Получаем историю сообщений
             messages = self.db.get_ticket_messages(ticket_id)
             history = "📋 История тикета:\n\n"
             for msg in messages[-5:]:
                 sender = "👤 Пользователь" if not msg.is_admin else "👑 Вы"
-                history += f"{sender}: {msg.message[:100]}\n"
+                time_str = msg.created_at.strftime('%H:%M %d.%m')
+                history += f"{sender} [{time_str}]: {msg.message[:100]}\n"
             
+            # Устанавливаем состояние
             self.user_states[admin_id] = f'ticket_reply_{ticket_id}'
-            log_error(f"Установлено состояние ticket_reply_{ticket_id} для админа {admin_id}")
+            log_error(f"✅ Установлено состояние ticket_reply_{ticket_id} для админа {admin_id}")
             
+            # Отправляем приглашение к ответу
             self.send_message(
                 admin_id,
-                f"✏️ Ответ на тикет #{ticket_id}\n\n"
+                f"✏️ ОТВЕТ НА ТИКЕТ #{ticket_id}\n\n"
                 f"{history}\n\n"
                 f"📝 Введите ваш ответ:",
                 self.keyboards.back_keyboard()
@@ -573,7 +577,7 @@ class HostileRustBot:
     def reply_to_ticket(self, admin_id, ticket_id, message):
         """Отправка ответа на тикет (админ)"""
         try:
-            log_error(f"Админ {admin_id} отвечает на тикет {ticket_id}: {message}")
+            log_error(f"✅ Админ {admin_id} отвечает на тикет {ticket_id}: {message}")
             
             session = self.db.get_session()
             try:
@@ -589,16 +593,21 @@ class HostileRustBot:
                     return
                 
                 user_vk_id = ticket.user.vk_id
+                log_error(f"✅ Найден пользователь {user_vk_id} для тикета {ticket_id}")
                 
-                self.db.add_ticket_message(ticket_id, admin_id, message, is_admin=True)
+                # Сохраняем ответ админа
+                save_result = self.db.add_ticket_message(ticket_id, admin_id, message, is_admin=True)
+                log_error(f"✅ Сохранение ответа: {save_result}")
                 
+                # Формируем сообщение пользователю
                 user_message = (
-                    f"📬 Новый ответ по тикету #{ticket_id}\n\n"
+                    f"📬 НОВЫЙ ОТВЕТ ПО ТИКЕТУ #{ticket_id}\n\n"
                     f"👨‍💼 Администратор:\n{message}\n\n"
                     f"⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
                     f"Чтобы ответить, создайте новый тикет."
                 )
                 
+                # Отправляем пользователю
                 try:
                     self.send_message(user_vk_id, user_message, self.keyboards.tickets_menu_keyboard())
                     self.send_message(
@@ -606,7 +615,7 @@ class HostileRustBot:
                         f"✅ Ответ отправлен пользователю @id{user_vk_id}",
                         self.keyboards.admin_keyboard()
                     )
-                    log_error(f"✅ Ответ на тикет {ticket_id} отправлен пользователю {user_vk_id}")
+                    log_error(f"✅ Ответ на тикет {ticket_id} успешно отправлен")
                 except Exception as e:
                     log_error(f"❌ Ошибка отправки ответа пользователю: {e}")
                     self.send_message(admin_id, "❌ Не удалось отправить ответ пользователю")
@@ -614,8 +623,10 @@ class HostileRustBot:
             finally:
                 session.close()
             
+            # Очищаем состояние
             if admin_id in self.user_states:
                 del self.user_states[admin_id]
+                log_error(f"✅ Состояние админа {admin_id} очищено")
                 
         except Exception as e:
             log_error(f"❌ Ошибка reply_to_ticket: {e}")
