@@ -161,7 +161,7 @@ class HostileRustBot:
             self.send_message(user_id, "Выберите действие:", self.keyboards.main_keyboard())
     
     def show_server_info(self, user_id):
-        # Временная заглушка
+        """Временная заглушка для информации о серверах"""
         info = "🖥 **СЕРВЕРА HOSTILE RUST**\n\n"
         info += "🔴 Ведутся технические работы\n"
         info += "Скоро информация появится!"
@@ -375,6 +375,8 @@ class HostileRustBot:
         """Статистика бота"""
         session = self.db.get_session()
         try:
+            from database import User, PromoCode, Ticket, PromoUsage
+            
             users_count = session.query(User).count()
             active_promos = session.query(PromoCode).filter_by(is_active=True).count()
             open_tickets = session.query(Ticket).filter_by(status='open').count()
@@ -384,13 +386,7 @@ class HostileRustBot:
             message += f"👥 **Пользователей:** {users_count}\n"
             message += f"🎁 **Активных промокодов:** {active_promos}\n"
             message += f"📈 **Использований промо:** {total_promo_uses}\n"
-            message += f"🎫 **Открытых тикетов:** {open_tickets}\n\n"
-            
-            # Информация о серверах
-            online = monitor.get_server_online()
-            message += "🖥 **СЕРВЕРА:**\n"
-            for key, server in SERVERS.items():
-                message += f"• {server['name']}: {online.get(key, 'N/A')}\n"
+            message += f"🎫 **Открытых тикетов:** {open_tickets}\n"
             
             self.send_message(admin_id, message, self.keyboards.admin_keyboard())
         finally:
@@ -594,6 +590,11 @@ class HostileRustBot:
     
     def run(self):
         """Запуск бота"""
+        print("\n" + "="*50)
+        print("✅ БОТ ЗАПУЩЕН И ГОТОВ К РАБОТЕ!")
+        print("📝 Отправьте 'начать' в сообщения группы")
+        print("="*50 + "\n")
+        
         for event in self.longpoll.listen():
             if event.type == VkEventType.MESSAGE_NEW and event.to_me:
                 try:
