@@ -328,7 +328,7 @@ class HostileRustBot:
             if server:
                 self.send_message(
                     user_id,
-                    f"📋 IP адрес сервера {server['name']}:\n{server['ip']}\n\nПросто выделите и скопируйте текст выше!",
+                    f"📋 IP адрес сервера {server['name']}:\n{server['ip']}\n\nПросто выделите и копируйте текст выше!",
                     self.keyboards.back_keyboard()
                 )
         except Exception as e:
@@ -443,7 +443,6 @@ class HostileRustBot:
         try:
             log_error(f"Создание тикета для {user_id}: {description}")
             
-            # Создаем тикет в базе данных
             ticket_id = self.db.create_ticket(user_id, description[:100])
             log_error(f"Результат создания тикета: ticket_id={ticket_id}")
             
@@ -456,15 +455,12 @@ class HostileRustBot:
                 )
                 return
             
-            # Сохраняем первое сообщение
             result = self.db.add_ticket_message(ticket_id, user_id, description, is_admin=False)
             log_error(f"Результат сохранения сообщения: {result}")
             
-            # Очищаем состояние
             if user_id in self.user_states:
                 del self.user_states[user_id]
             
-            # Отправляем подтверждение пользователю
             self.send_message(
                 user_id,
                 f"✅ Тикет #{ticket_id} создан!\n\n"
@@ -473,14 +469,12 @@ class HostileRustBot:
                 self.keyboards.tickets_menu_keyboard()
             )
             
-            # Получаем информацию о пользователе для уведомления админов
             try:
                 user_info = self.vk_session.users.get(user_ids=user_id)[0]
                 user_name = f"{user_info['first_name']} {user_info['last_name']}"
             except:
                 user_name = f"id{user_id}"
             
-            # Создаем уведомление для админов
             admin_message = (
                 f"🎫 НОВЫЙ ТИКЕТ #{ticket_id}\n\n"
                 f"👤 От: {user_name} (@id{user_id})\n"
@@ -488,10 +482,8 @@ class HostileRustBot:
                 f"Полное описание:\n{description}"
             )
             
-            # Отправляем уведомление каждому админу
             for admin_id in ADMIN_IDS:
                 try:
-                    # Создаем клавиатуру для ответа
                     keyboard = VkKeyboard(inline=True)
                     keyboard.add_button(
                         f'✏️ Ответить на тикет #{ticket_id}',
@@ -521,7 +513,7 @@ class HostileRustBot:
                 self.keyboards.back_keyboard()
             )
     
-        def start_admin_reply(self, admin_id, ticket_id):
+    def start_admin_reply(self, admin_id, ticket_id):
         """Начало ответа на тикет (админ)"""
         log_error(f"start_admin_reply вызвана: admin_id={admin_id}, ticket_id={ticket_id}")
         
@@ -538,18 +530,15 @@ class HostileRustBot:
                 self.send_message(admin_id, "❌ Тикет уже закрыт")
                 return
             
-            # Получаем историю сообщений
             messages = self.db.get_ticket_messages(ticket_id)
             history = "📋 История тикета:\n\n"
             for msg in messages[-5:]:
                 sender = "👤 Пользователь" if not msg.is_admin else "👑 Вы"
                 history += f"{sender}: {msg.message[:100]}\n"
             
-            # Устанавливаем состояние
             self.user_states[admin_id] = f'ticket_reply_{ticket_id}'
             log_error(f"Установлено состояние ticket_reply_{ticket_id} для админа {admin_id}")
             
-            # Отправляем приглашение к ответу
             self.send_message(
                 admin_id,
                 f"✏️ Ответ на тикет #{ticket_id}\n\n"
@@ -564,8 +553,7 @@ class HostileRustBot:
             self.send_message(admin_id, "❌ Ошибка при подготовке ответа")
         finally:
             session.close()
-
-
+    
     def reply_to_ticket(self, admin_id, ticket_id, message):
         """Отправка ответа на тикет (админ)"""
         try:
