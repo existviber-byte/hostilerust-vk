@@ -99,7 +99,7 @@ class HostileRustBot:
             return False
     
     def send_admin_message(self, message, keyboard=None):
-        """Отправка сообщения всем админам"""
+        """Отправка сообщения всем админам (только для важных уведомлений)"""
         for admin_id in ADMIN_IDS:
             self.send_message(admin_id, message, keyboard)
     
@@ -113,7 +113,23 @@ class HostileRustBot:
                 state = self.user_states[user_id]
                 log_error(f"Состояние пользователя: {state}")
                 
+                # Если пользователь пишет "начать" во время создания тикета - сбрасываем состояние
+                if message.lower() in ['начать', 'start', 'меню', 'привет', 'старт']:
+                    log_error(f"Пользователь {user_id} прервал текущее действие")
+                    del self.user_states[user_id]
+                    self.register_user(user_id)
+                    self.send_main_menu(user_id)
+                    return
+                
                 if state == 'waiting_ticket':
+                    # Проверяем что сообщение не слишком короткое
+                    if len(message.strip()) < 3:
+                        self.send_message(
+                            user_id,
+                            "❌ Слишком короткое описание. Опишите проблему подробнее.",
+                            self.keyboards.back_keyboard()
+                        )
+                        return
                     self.create_ticket(user_id, message)
                     return
                 elif state == 'waiting_promo_add':
@@ -239,9 +255,9 @@ class HostileRustBot:
                 elif msg in ['◀️ назад', 'назад']:
                     self.send_main_menu(user_id)
             
-            # Если ничего не подошло
+            # Если ничего не подошло - игнорируем, НЕ отправляем админам!
             else:
-                log_error(f"Неизвестная команда: {msg}")
+                log_error(f"Неизвестная команда от {user_id}: {msg} - игнорируем")
                 
         except Exception as e:
             log_error(f"❌ Ошибка в handle_message: {e}")
