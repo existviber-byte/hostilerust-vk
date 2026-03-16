@@ -83,10 +83,10 @@ class Database:
                 user = User(vk_id=vk_id, first_name=first_name, last_name=last_name)
                 session.add(user)
                 session.commit()
-                print(f"Новый пользователь: {first_name} {last_name} (ID: {vk_id})")
+                print(f"✅ Новый пользователь: {first_name} {last_name} (ID: {vk_id})")
             return user
         except Exception as e:
-            print(f"Ошибка add_user: {e}")
+            print(f"❌ Ошибка add_user: {e}")
             session.rollback()
             return None
         finally:
@@ -114,7 +114,7 @@ class Database:
             session.commit()
             return promo
         except Exception as e:
-            print(f"Ошибка add_promo: {e}")
+            print(f"❌ Ошибка add_promo: {e}")
             session.rollback()
             return None
         finally:
@@ -130,7 +130,7 @@ class Database:
                 return True
             return False
         except Exception as e:
-            print(f"Ошибка delete_promo: {e}")
+            print(f"❌ Ошибка delete_promo: {e}")
             session.rollback()
             return False
         finally:
@@ -165,26 +165,35 @@ class Database:
             session.commit()
             return True, "Промокод успешно активирован"
         except Exception as e:
-            print(f"Ошибка use_promo: {e}")
+            print(f"❌ Ошибка use_promo: {e}")
             session.rollback()
             return False, "Ошибка при активации промокода"
         finally:
             session.close()
     
     def create_ticket(self, vk_id, title):
+        """Создание нового тикета"""
         session = self.get_session()
         try:
+            # Ищем пользователя по vk_id
             user = session.query(User).filter_by(vk_id=vk_id).first()
-            if user:
-                ticket = Ticket(user_id=user.id, title=title)
-                session.add(ticket)
+            if not user:
+                print(f"❌ Пользователь {vk_id} не найден в БД, создаем...")
+                # Создаем пользователя если его нет
+                user = User(vk_id=vk_id, first_name="Unknown", last_name="User")
+                session.add(user)
                 session.commit()
-                print(f"Тикет создан: ID={ticket.id}, user_id={user.id}")
-                return ticket.id
-            print(f"Пользователь {vk_id} не найден")
-            return None
+                print(f"✅ Создан новый пользователь {vk_id}")
+            
+            # Создаем тикет
+            ticket = Ticket(user_id=user.id, title=title)
+            session.add(ticket)
+            session.commit()
+            print(f"✅ Тикет создан: ID={ticket.id}, user_id={user.id}")
+            return ticket.id
+            
         except Exception as e:
-            print(f"Ошибка create_ticket: {e}")
+            print(f"❌ Ошибка create_ticket: {e}")
             session.rollback()
             return None
         finally:
@@ -202,12 +211,12 @@ class Database:
             )
             session.add(msg)
             session.commit()
-            print(f"Сообщение добавлено в тикет {ticket_id}")
-            return True  # ✅ ВАЖНО: возвращаем True при успехе
+            print(f"✅ Сообщение добавлено в тикет {ticket_id}")
+            return True
         except Exception as e:
-            print(f"Ошибка add_ticket_message: {e}")
+            print(f"❌ Ошибка add_ticket_message: {e}")
             session.rollback()
-            return False  # ✅ ВАЖНО: возвращаем False при ошибке
+            return False
         finally:
             session.close()
     
@@ -220,7 +229,7 @@ class Database:
                 _ = ticket.user
             return ticket
         except Exception as e:
-            print(f"Ошибка get_ticket: {e}")
+            print(f"❌ Ошибка get_ticket: {e}")
             return None
         finally:
             session.close()
@@ -233,11 +242,11 @@ class Database:
                 ticket.status = 'closed'
                 ticket.closed_at = datetime.now()
                 session.commit()
-                print(f"Тикет {ticket_id} закрыт")
+                print(f"✅ Тикет {ticket_id} закрыт")
                 return True
             return False
         except Exception as e:
-            print(f"Ошибка close_ticket: {e}")
+            print(f"❌ Ошибка close_ticket: {e}")
             session.rollback()
             return False
         finally:
@@ -255,7 +264,7 @@ class Database:
                 return tickets
             return []
         except Exception as e:
-            print(f"Ошибка get_user_tickets: {e}")
+            print(f"❌ Ошибка get_user_tickets: {e}")
             return []
         finally:
             session.close()
@@ -270,7 +279,7 @@ class Database:
                 _ = ticket.messages
             return tickets
         except Exception as e:
-            print(f"Ошибка get_open_tickets: {e}")
+            print(f"❌ Ошибка get_open_tickets: {e}")
             return []
         finally:
             session.close()
@@ -281,7 +290,7 @@ class Database:
             messages = session.query(TicketMessage).filter_by(ticket_id=ticket_id).order_by(TicketMessage.created_at).all()
             return messages
         except Exception as e:
-            print(f"Ошибка get_ticket_messages: {e}")
+            print(f"❌ Ошибка get_ticket_messages: {e}")
             return []
         finally:
             session.close()
