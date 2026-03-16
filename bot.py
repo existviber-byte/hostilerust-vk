@@ -9,7 +9,7 @@ import time
 from config import *
 from database import Database
 from keyboards import Keyboards
-from monitor import monitor
+# from monitor import monitor  # ВРЕМЕННО отключаем
 
 class HostileRustBot:
     def __init__(self):
@@ -161,17 +161,11 @@ class HostileRustBot:
             self.send_message(user_id, "Выберите действие:", self.keyboards.main_keyboard())
     
     def show_server_info(self, user_id):
-        """Информация о серверах"""
-        try:
-            info = monitor.format_server_info()
-            self.send_message(user_id, info, self.keyboards.server_refresh_keyboard())
-        except Exception as e:
-            print(f"Ошибка получения информации: {e}")
-            self.send_message(
-                user_id,
-                "❌ Не удалось получить информацию о серверах. Попробуйте позже.",
-                self.keyboards.back_keyboard()
-            )
+    # Временная заглушка
+    info = "🖥 **СЕРВЕРА HOSTILE RUST**\n\n"
+    info += "🔴 Ведутся технические работы\n"
+    info += "Скоро информация появится!"
+    self.send_message(user_id, info, self.keyboards.back_keyboard())
     
     def show_rules(self, user_id):
         """Правила сервера"""
