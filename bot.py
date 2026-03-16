@@ -438,40 +438,54 @@ class HostileRustBot:
         )
     
     def create_ticket(self, user_id, description):
-        """Создание нового тикета"""
-        try:
-            log_error(f"Создание тикета для {user_id}: {description}")
+    """Создание нового тикета"""
+    try:
+        log_error(f"Создание тикета для {user_id}: {description}")
+        
+        # Создаем тикет в базе данных
+        ticket_id = self.db.create_ticket(user_id, description[:100])
+        
+        if ticket_id:
+            # Сохраняем первое сообщение
+            result = self.db.add_ticket_message(ticket_id, user_id, description, is_admin=False)
             
-            ticket_id = self.db.create_ticket(user_id, description[:100])
+            if result:
+                log_error(f"✅ Сообщение тикета сохранено")
+            else:
+                log_error(f"⚠️ Проблема с сохранением сообщения")
             
-            if ticket_id:
-                self.db.add_ticket_message(ticket_id, user_id, description, is_admin=False)
-                
+            # Очищаем состояние
+            if user_id in self.user_states:
                 del self.user_states[user_id]
-                
-                self.send_message(
-                    user_id,
-                    f"✅ Тикет #{ticket_id} создан!\n\n"
-                    f"Ваше обращение:\n{description}\n\n"
-                    f"Администратор скоро ответит.",
-                    self.keyboards.tickets_menu_keyboard()
-                )
-                
+            
+            # Отправляем подтверждение пользователю
+            self.send_message(
+                user_id,
+                f"✅ Тикет #{ticket_id} создан!\n\n"
+                f"Ваше обращение:\n{description}\n\n"
+                f"Администратор скоро ответит.",
+                self.keyboards.tickets_menu_keyboard()
+            )
+            
+            # Получаем информацию о пользователе для уведомления админов
+            try:
+                user_info = self.vk_session.users.get(user_ids=user_id)[0]
+                user_name = f"{user_info['first_name']} {user_info['last_name']}"
+            except:
+                user_name = f"id{user_id}"
+            
+            # Создаем уведомление для админов
+            admin_message = (
+                f"🎫 НОВЫЙ ТИКЕТ #{ticket_id}\n\n"
+                f"👤 От: {user_name} (@id{user_id})\n"
+                f"📝 Тема: {description[:100]}\n\n"
+                f"Полное описание:\n{description}"
+            )
+            
+            # Отправляем уведомление каждому админу
+            for admin_id in ADMIN_IDS:
                 try:
-                    user_info = self.vk_session.users.get(user_ids=user_id)[0]
-                    user_name = f"{user_info['first_name']} {user_info['last_name']}"
-                except:
-                    user_name = f"id{user_id}"
-                
-                admin_message = (
-                    f"🎫 НОВЫЙ ТИКЕТ #{ticket_id}\n\n"
-                    f"👤 От: {user_name} (@id{user_id})\n"
-                    f"📝 Тема: {description[:100]}\n\n"
-                    f"Полное описание:\n{description}\n\n"
-                    f"Для ответа нажмите кнопку ниже:"
-                )
-                
-                for admin_id in ADMIN_IDS:
+                    # Создаем клавиатуру для ответа
                     keyboard = VkKeyboard(inline=True)
                     keyboard.add_button(
                         f'✏️ Ответить на тикет #{ticket_id}',
@@ -486,18 +500,26 @@ class HostileRustBot:
                     )
                     
                     self.send_message(admin_id, admin_message, keyboard)
-                
-                log_error(f"✅ Тикет {ticket_id} создан, админы уведомлены")
-            else:
-                self.send_message(
-                    user_id,
-                    "❌ Ошибка при создании тикета",
-                    self.keyboards.back_keyboard()
-                )
-        except Exception as e:
-            log_error(f"❌ Ошибка create_ticket: {e}")
-            log_error(traceback.format_exc())
-            self.send_message(user_id, "❌ Ошибка при создании тикета", self.keyboards.back_keyboard())
+                    log_error(f"✅ Уведомление отправлено админу {admin_id}")
+                except Exception as e:
+                    log_error(f"❌ Ошибка отправки уведомления админу {admin_id}: {e}")
+            
+            log_error(f"✅ Тикет {ticket_id} успешно создан")
+        else:
+            log_error(f"❌ Не удалось создать тикет в БД")
+            self.send_message(
+                user_id,
+                "❌ Ошибка при создании тикета. Попробуйте позже.",
+                self.keyboards.back_keyboard()
+            )
+    except Exception as e:
+        log_error(f"❌ Критическая ошибка create_ticket: {e}")
+        log_error(traceback.format_exc())
+        self.send_message(
+            user_id,
+            "❌ Ошибка при создании тикета. Попробуйте позже.",
+            self.keyboards.back_keyboard()
+        )
     
     def start_admin_reply(self, admin_id, ticket_id):
         """Начало ответа на тикет (админ)"""
