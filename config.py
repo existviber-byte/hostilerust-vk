@@ -1,7 +1,7 @@
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
+# Удалите эти строки:
+# from dotenv import load_dotenv
+# load_dotenv()
 
 TOKEN = os.getenv('VK_TOKEN')
 GROUP_ID = int(os.getenv('GROUP_ID'))
