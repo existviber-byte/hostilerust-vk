@@ -773,7 +773,9 @@ class HostileRustBot:
                 message += f"📊 Использован: {promo.uses} раз\n"
                 message += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
             
-            message += "\n💡 Введите код промокода в чат для активации!"
+            message += "\n💡 Введите код промокода в личном кабинете магазина!"
+            message += "💡 Нажмите кнопку ниже, чтобы перейти в магазин!"
+            self.send_message(user_id, message, self.keyboards.shop_keyboard())
             
             self.send_message(user_id, message, self.keyboards.back_keyboard())
         except Exception as e:
