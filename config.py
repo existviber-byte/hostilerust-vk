@@ -20,7 +20,7 @@ SERVERS = {
     },
     'second': {
         'name': 'Hostile Rust [x100]',
-        'ip': '46.174.50.248:20640',
+        'ip': '78.46.56.22:20500',
         'monitor_url': 'https://hostilerust.gamestores.app/',
         'selector': '.server-card:last-child .online'
     }
