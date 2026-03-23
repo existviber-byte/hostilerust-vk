@@ -55,7 +55,6 @@ class HostileRustBot:
             db_file = os.path.join(os.path.dirname(__file__), 'hostile_rust.db')
             if os.path.exists(db_file):
                 log_error(f"📁 Найдена существующая база данных: {db_file}")
-                # Показываем количество пользователей для проверки
                 try:
                     temp_db = Database()
                     session = temp_db.get_session()
@@ -71,7 +70,6 @@ class HostileRustBot:
             self.longpoll = VkLongPoll(self.vk)
             self.vk_session = self.vk.get_api()
             
-            # Проверка подключения
             test = self.vk_session.users.get()
             log_error(f"✅ Подключение к VK API успешно")
             
@@ -233,7 +231,6 @@ class HostileRustBot:
             # ===== 4. ПРОВЕРЯЕМ ТЕКСТОВЫЕ КОМАНДЫ =====
             msg = message.lower().strip()
             
-            # Специальные команды для кнопок
             if msg in ['начать', 'start', 'меню', 'привет', 'старт']:
                 self.register_user(user_id)
                 self.send_main_menu(user_id)
@@ -539,27 +536,65 @@ class HostileRustBot:
             log_error(f"❌ Ошибка close_ticket_admin: {e}")
     
     def show_admin_tickets(self, admin_id):
+        """Показ всех открытых тикетов для админа (исправленная версия)"""
         try:
-            tickets = self.db.get_open_tickets()
-            if not tickets:
-                self.send_message(admin_id, "✅ Нет открытых тикетов", self.keyboards.admin_keyboard())
-                return
+            log_error(f"📋 Загрузка открытых тикетов для админа {admin_id}")
             
-            message = "🎫 ОТКРЫТЫЕ ТИКЕТЫ 🎫\n\n"
-            for ticket in tickets:
-                message += f"#{ticket.id} от @id{ticket.user.vk_id}\n📝 {ticket.title}\n📅 {ticket.created_at.strftime('%d.%m.%Y %H:%M')}\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
-            
-            self.send_message(admin_id, message[:4000])
-            
-            keyboard = VkKeyboard(inline=True)
-            for ticket in tickets[:5]:
-                keyboard.add_button(f'✏️ Ответить #{ticket.id}', color=VkKeyboardColor.PRIMARY, payload={'command': f'admin_reply_{ticket.id}'})
-                keyboard.add_button(f'❌ Закрыть #{ticket.id}', color=VkKeyboardColor.NEGATIVE, payload={'command': f'admin_close_{ticket.id}'})
-                keyboard.add_line()
-            keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY, payload={'command': 'back_to_main'})
-            self.send_message(admin_id, "Выберите действие:", keyboard)
+            session = self.db.get_session()
+            try:
+                from database import Ticket
+                tickets = session.query(Ticket).filter_by(status='open').all()
+                
+                # Принудительно загружаем пользователей для каждого тикета
+                for ticket in tickets:
+                    _ = ticket.user
+                    _ = ticket.messages
+                
+                if not tickets:
+                    self.send_message(admin_id, "✅ Нет открытых тикетов", self.keyboards.admin_keyboard())
+                    return
+                
+                message = "🎫 ОТКРЫТЫЕ ТИКЕТЫ 🎫\n\n"
+                for ticket in tickets:
+                    user_vk = ticket.user.vk_id
+                    user_name = f"{ticket.user.first_name} {ticket.user.last_name}"
+                    
+                    message += f"#{ticket.id} от @id{user_vk} ({user_name})\n"
+                    message += f"📝 {ticket.title}\n"
+                    message += f"📅 {ticket.created_at.strftime('%d.%m.%Y %H:%M')}\n"
+                    message += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
+                
+                self.send_message(admin_id, message[:4000])
+                
+                keyboard = VkKeyboard(inline=True)
+                for ticket in tickets[:5]:
+                    keyboard.add_button(
+                        f'✏️ Ответить #{ticket.id}',
+                        color=VkKeyboardColor.PRIMARY,
+                        payload={'command': f'admin_reply_{ticket.id}'}
+                    )
+                    keyboard.add_button(
+                        f'❌ Закрыть #{ticket.id}',
+                        color=VkKeyboardColor.NEGATIVE,
+                        payload={'command': f'admin_close_{ticket.id}'}
+                    )
+                    keyboard.add_line()
+                keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY, payload={'command': 'back_to_main'})
+                
+                self.send_message(admin_id, "Выберите действие:", keyboard)
+                log_error(f"✅ Показано {len(tickets)} открытых тикетов")
+                
+            except Exception as e:
+                log_error(f"❌ Ошибка при загрузке тикетов: {e}")
+                log_error(traceback.format_exc())
+                self.send_message(admin_id, "❌ Ошибка загрузки тикетов", self.keyboards.admin_keyboard())
+            finally:
+                session.close()
+                
         except Exception as e:
             log_error(f"❌ Ошибка show_admin_tickets: {e}")
+            log_error(traceback.format_exc())
+            self.send_message(admin_id, "❌ Ошибка загрузки тикетов", self.keyboards.admin_keyboard())
     
     # ========== ПРОМОКОДЫ ==========
     
