@@ -281,9 +281,9 @@ class HostileRustBot:
             try:
                 user_info = self.vk_session.users.get(user_ids=user_id)[0]
                 name = user_info['first_name']
-                welcome = f"🦀 Привет, {name}! 🦀\n\nЯ бот сервера Hostile Rust.\nВот что я умею:"
+                welcome = f"☠ Приветствую тебя выживший, {name}! ☠\n\nЯ бот сервера Hostile Rust.\nВот что я умею:"
             except:
-                welcome = "🦀 Привет! Я бот сервера Hostile Rust 🦀\n\nВот что я умею:"
+                welcome = "☠ Привет! Я бот серверов Hostile Rust ☠\n\nВот что я умею:"
             
             self.send_message(user_id, welcome, self.keyboards.main_keyboard())
                 
