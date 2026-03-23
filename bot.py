@@ -12,6 +12,7 @@ import json
 
 # ==== ПРОСТОЕ ЛОГИРОВАНИЕ В ФАЙЛ ====
 log_file = open('bot_errors.log', 'a', encoding='utf-8')
+
 def log_error(text):
     """Запись ошибки в файл"""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -49,6 +50,23 @@ class HostileRustBot:
     def __init__(self):
         try:
             log_error("Инициализация бота...")
+            
+            # Проверяем существование базы данных
+            db_file = os.path.join(os.path.dirname(__file__), 'hostile_rust.db')
+            if os.path.exists(db_file):
+                log_error(f"📁 Найдена существующая база данных: {db_file}")
+                # Показываем количество пользователей для проверки
+                try:
+                    temp_db = Database()
+                    session = temp_db.get_session()
+                    users_count = session.query(User).count()
+                    session.close()
+                    log_error(f"👥 В базе данных {users_count} пользователей")
+                except Exception as e:
+                    log_error(f"⚠️ Не удалось проверить БД: {e}")
+            else:
+                log_error(f"📁 Создается новая база данных: {db_file}")
+            
             self.vk = vk_api.VkApi(token=TOKEN)
             self.longpoll = VkLongPoll(self.vk)
             self.vk_session = self.vk.get_api()
@@ -273,7 +291,8 @@ class HostileRustBot:
                     return
             
             # ===== 5. ПРОВЕРЯЕМ НА ВВОД ПРОМОКОДА =====
-            self.check_promo_code(user_id, message)
+            if self.check_promo_code(user_id, message):
+                return
             
             # ===== 6. ЕСЛИ НИЧЕГО НЕ ПОДОШЛО - ОТВЕЧАЕМ МЕНЮ =====
             self.register_user(user_id)
@@ -297,9 +316,10 @@ class HostileRustBot:
         try:
             existing_user = self.db.get_user(user_id)
             if existing_user:
+                log_error(f"📌 Пользователь {user_id} уже зарегистрирован")
                 return existing_user
             
-            log_error(f"Регистрация нового пользователя {user_id}")
+            log_error(f"🆕 Регистрация нового пользователя {user_id}")
             user_info = self.vk_session.users.get(user_ids=user_id)[0]
             user = self.db.add_user(user_id, user_info['first_name'], user_info['last_name'])
             log_error(f"✅ Пользователь {user_id} зарегистрирован")
