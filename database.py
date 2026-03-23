@@ -16,7 +16,6 @@ class User(Base):
     registered_at = Column(DateTime, default=datetime.now)
     
     tickets = relationship("Ticket", back_populates="user")
-    promo_uses = relationship("PromoUsage", back_populates="user")
 
 class PromoCode(Base):
     __tablename__ = 'promocodes'
@@ -26,20 +25,7 @@ class PromoCode(Base):
     description = Column(String)
     created_at = Column(DateTime, default=datetime.now)
     is_active = Column(Boolean, default=True)
-    uses = Column(Integer, default=0)
-    
-    usage_history = relationship("PromoUsage", back_populates="promo")
-
-class PromoUsage(Base):
-    __tablename__ = 'promo_usage'
-    
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'))
-    promo_id = Column(Integer, ForeignKey('promocodes.id'))
-    used_at = Column(DateTime, default=datetime.now)
-    
-    user = relationship("User", back_populates="promo_uses")
-    promo = relationship("PromoCode", back_populates="usage_history")
+    # Убираем поле uses - счетчик больше не нужен
 
 class Ticket(Base):
     __tablename__ = 'tickets'
@@ -107,6 +93,7 @@ class Database:
             session.close()
     
     def add_promo(self, code, description):
+        """Добавление промокода (без счетчика)"""
         session = self.get_session()
         try:
             promo = PromoCode(code=code, description=description)
@@ -143,53 +130,20 @@ class Database:
         finally:
             session.close()
     
-    def use_promo(self, vk_id, promo_code):
-        session = self.get_session()
-        try:
-            user = session.query(User).filter_by(vk_id=vk_id).first()
-            promo = session.query(PromoCode).filter_by(code=promo_code, is_active=True).first()
-            
-            if not user or not promo:
-                return False, "Пользователь или промокод не найден"
-            
-            used = session.query(PromoUsage).filter_by(
-                user_id=user.id, promo_id=promo.id
-            ).first()
-            
-            if used:
-                return False, "Вы уже использовали этот промокод"
-            
-            usage = PromoUsage(user_id=user.id, promo_id=promo.id)
-            session.add(usage)
-            promo.uses += 1
-            session.commit()
-            return True, "Промокод успешно активирован"
-        except Exception as e:
-            print(f"❌ Ошибка use_promo: {e}")
-            session.rollback()
-            return False, "Ошибка при активации промокода"
-        finally:
-            session.close()
-    
     def create_ticket(self, vk_id, title):
-        """Создание нового тикета"""
         session = self.get_session()
         try:
-            # Ищем пользователя по vk_id
             user = session.query(User).filter_by(vk_id=vk_id).first()
             if not user:
-                print(f"❌ Пользователь {vk_id} не найден в БД, создаем...")
-                # Создаем пользователя если его нет
                 user = User(vk_id=vk_id, first_name="Unknown", last_name="User")
                 session.add(user)
                 session.commit()
                 print(f"✅ Создан новый пользователь {vk_id}")
             
-            # Создаем тикет
             ticket = Ticket(user_id=user.id, title=title)
             session.add(ticket)
             session.commit()
-            print(f"✅ Тикет создан: ID={ticket.id}, user_id={user.id}")
+            print(f"✅ Тикет создан: ID={ticket.id}")
             return ticket.id
             
         except Exception as e:
@@ -200,7 +154,6 @@ class Database:
             session.close()
     
     def add_ticket_message(self, ticket_id, user_id, message, is_admin=False):
-        """Добавление сообщения в тикет"""
         session = self.get_session()
         try:
             msg = TicketMessage(
@@ -225,7 +178,6 @@ class Database:
         try:
             ticket = session.query(Ticket).filter_by(id=ticket_id).first()
             if ticket:
-                # Принудительно загружаем связанного пользователя
                 _ = ticket.user
             return ticket
         except Exception as e:
@@ -258,7 +210,6 @@ class Database:
             user = session.query(User).filter_by(vk_id=vk_id).first()
             if user:
                 tickets = session.query(Ticket).filter_by(user_id=user.id).order_by(Ticket.created_at.desc()).all()
-                # Принудительно загружаем сообщения для каждого тикета
                 for ticket in tickets:
                     _ = ticket.messages
                 return tickets
@@ -273,7 +224,6 @@ class Database:
         session = self.get_session()
         try:
             tickets = session.query(Ticket).filter_by(status='open').all()
-            # Принудительно загружаем пользователей для каждого тикета
             for ticket in tickets:
                 _ = ticket.user
                 _ = ticket.messages
@@ -287,8 +237,7 @@ class Database:
     def get_ticket_messages(self, ticket_id):
         session = self.get_session()
         try:
-            messages = session.query(TicketMessage).filter_by(ticket_id=ticket_id).order_by(TicketMessage.created_at).all()
-            return messages
+            return session.query(TicketMessage).filter_by(ticket_id=ticket_id).order_by(TicketMessage.created_at).all()
         except Exception as e:
             print(f"❌ Ошибка get_ticket_messages: {e}")
             return []
