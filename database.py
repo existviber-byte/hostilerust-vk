@@ -2,6 +2,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
+import os
 
 Base = declarative_base()
 
@@ -45,10 +46,18 @@ class TicketMessage(Base):
     ticket = relationship("Ticket", back_populates="messages")
 
 class Database:
-    def __init__(self, db_url='sqlite:///hostile_rust.db'):
-        self.engine = create_engine(db_url)
+    def __init__(self, db_url=None):
+        # Используем фиксированный путь к базе данных
+        if db_url is None:
+            # База данных будет в той же папке, что и скрипт
+            db_path = os.path.join(os.path.dirname(__file__), 'hostile_rust.db')
+            db_url = f'sqlite:///{db_path}'
+        
+        self.db_path = db_url
+        self.engine = create_engine(db_url, connect_args={'check_same_thread': False})
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
+        print(f"✅ База данных: {db_url}")
     
     def get_session(self):
         return self.Session()
@@ -61,7 +70,14 @@ class Database:
                 user = User(vk_id=vk_id, first_name=first_name, last_name=last_name)
                 session.add(user)
                 session.commit()
+                print(f"✅ Новый пользователь: {first_name} {last_name} (ID: {vk_id})")
+            else:
+                print(f"📌 Пользователь уже существует: {first_name} {last_name} (ID: {vk_id})")
             return user
+        except Exception as e:
+            print(f"❌ Ошибка add_user: {e}")
+            session.rollback()
+            return None
         finally:
             session.close()
     
@@ -82,10 +98,21 @@ class Database:
     def add_promo(self, code, description):
         session = self.get_session()
         try:
+            # Проверяем, существует ли уже такой промокод
+            existing = session.query(PromoCode).filter_by(code=code).first()
+            if existing:
+                print(f"⚠️ Промокод {code} уже существует")
+                return existing
+            
             promo = PromoCode(code=code, description=description)
             session.add(promo)
             session.commit()
+            print(f"✅ Добавлен промокод: {code}")
             return promo
+        except Exception as e:
+            print(f"❌ Ошибка add_promo: {e}")
+            session.rollback()
+            return None
         finally:
             session.close()
     
@@ -96,7 +123,13 @@ class Database:
             if promo:
                 session.delete(promo)
                 session.commit()
+                print(f"✅ Удален промокод: {code}")
                 return True
+            print(f"⚠️ Промокод {code} не найден")
+            return False
+        except Exception as e:
+            print(f"❌ Ошибка delete_promo: {e}")
+            session.rollback()
             return False
         finally:
             session.close()
@@ -116,10 +149,17 @@ class Database:
                 user = User(vk_id=vk_id, first_name="Unknown", last_name="User")
                 session.add(user)
                 session.commit()
+                print(f"✅ Создан пользователь {vk_id} для тикета")
+            
             ticket = Ticket(user_id=user.id, title=title)
             session.add(ticket)
             session.commit()
+            print(f"✅ Создан тикет #{ticket.id}")
             return ticket.id
+        except Exception as e:
+            print(f"❌ Ошибка create_ticket: {e}")
+            session.rollback()
+            return None
         finally:
             session.close()
     
@@ -130,6 +170,10 @@ class Database:
             session.add(msg)
             session.commit()
             return True
+        except Exception as e:
+            print(f"❌ Ошибка add_ticket_message: {e}")
+            session.rollback()
+            return False
         finally:
             session.close()
     
@@ -148,7 +192,12 @@ class Database:
                 ticket.status = 'closed'
                 ticket.closed_at = datetime.now()
                 session.commit()
+                print(f"✅ Тикет #{ticket_id} закрыт")
                 return True
+            return False
+        except Exception as e:
+            print(f"❌ Ошибка close_ticket: {e}")
+            session.rollback()
             return False
         finally:
             session.close()
@@ -174,5 +223,20 @@ class Database:
         session = self.get_session()
         try:
             return session.query(TicketMessage).filter_by(ticket_id=ticket_id).order_by(TicketMessage.created_at).all()
+        finally:
+            session.close()
+    
+    def get_stats(self):
+        """Получение статистики"""
+        session = self.get_session()
+        try:
+            users_count = session.query(User).count()
+            promos_count = session.query(PromoCode).filter_by(is_active=True).count()
+            tickets_count = session.query(Ticket).filter_by(status='open').count()
+            return {
+                'users': users_count,
+                'promos': promos_count,
+                'tickets': tickets_count
+            }
         finally:
             session.close()
