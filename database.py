@@ -58,15 +58,32 @@ class TicketMessage(Base):
 
 class Database:
     def __init__(self, db_url=None):
+        # ФИКСИРОВАННЫЙ ПУТЬ К БАЗЕ ДАННЫХ
         if db_url is None:
-            db_path = os.path.join(os.path.dirname(__file__), 'hostile_rust.db')
+            # Получаем абсолютный путь к папке с ботом
+            bot_dir = os.path.dirname(os.path.abspath(__file__))
+            db_path = os.path.join(bot_dir, 'hostile_rust.db')
             db_url = f'sqlite:///{db_path}'
+            print(f"📁 Путь к базе данных: {db_path}")
         
         self.db_path = db_url
+        # Добавляем параметры для корректной работы
         self.engine = create_engine(db_url, connect_args={'check_same_thread': False})
+        
+        # Создаем таблицы если их нет
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
-        print(f"✅ База данных: {db_url}")
+        
+        # Проверяем, есть ли данные в базе
+        session = self.Session()
+        try:
+            users_count = session.query(User).count()
+            promos_count = session.query(PromoCode).count()
+            print(f"✅ База данных загружена: {users_count} пользователей, {promos_count} промокодов")
+        except Exception as e:
+            print(f"⚠️ Ошибка проверки БД: {e}")
+        finally:
+            session.close()
     
     def get_session(self):
         return self.Session()
@@ -147,7 +164,7 @@ class Database:
             session.close()
     
     def record_promo_usage(self, user_id, promo_code):
-        """Запись использования промокода (только для истории, без активации в игре)"""
+        """Запись использования промокода"""
         session = self.get_session()
         try:
             user = session.query(User).filter_by(vk_id=user_id).first()
@@ -156,7 +173,6 @@ class Database:
             if not user or not promo:
                 return False, "Пользователь или промокод не найден"
             
-            # Проверяем, использовал ли уже пользователь этот промокод
             used = session.query(PromoUsage).filter_by(
                 user_id=user.id, promo_id=promo.id
             ).first()
