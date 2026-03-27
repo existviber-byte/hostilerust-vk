@@ -48,48 +48,56 @@ except Exception as e:
 
 class HostileRustBot:
     def __init__(self):
-        try:
-            log_error("Инициализация бота...")
-            
-            # Проверяем существование базы данных
-            db_file = os.path.join(os.path.dirname(__file__), 'hostile_rust.db')
-            if os.path.exists(db_file):
-                log_error(f"📁 Найдена существующая база данных: {db_file}")
+            try:
+                log_error("Инициализация бота...")
+                
+                # Проверяем существование базы данных
+                db_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hostile_rust.db')
+                
+                if os.path.exists(db_file):
+                    log_error(f"📁 Найдена существующая база данных: {db_file}")
+                    # Показываем размер файла для проверки
+                    size = os.path.getsize(db_file)
+                    log_error(f"📏 Размер файла БД: {size} байт")
+                else:
+                    log_error(f"📁 База данных не найдена, будет создана новая: {db_file}")
+                
+                # Создаем экземпляр базы данных
+                self.db = Database()
+                log_error("✅ База данных инициализирована")
+                
+                # Проверяем количество пользователей после инициализации
+                session = self.db.get_session()
                 try:
-                    temp_db = Database()
-                    session = temp_db.get_session()
+                    from database import User
                     users_count = session.query(User).count()
                     promos_count = session.query(PromoCode).count()
-                    session.close()
                     log_error(f"👥 В базе данных {users_count} пользователей")
                     log_error(f"🎁 В базе данных {promos_count} промокодов")
                 except Exception as e:
                     log_error(f"⚠️ Не удалось проверить БД: {e}")
-            else:
-                log_error(f"📁 Создается новая база данных: {db_file}")
-            
-            self.vk = vk_api.VkApi(token=TOKEN)
-            self.longpoll = VkLongPoll(self.vk)
-            self.vk_session = self.vk.get_api()
-            
-            test = self.vk_session.users.get()
-            log_error(f"✅ Подключение к VK API успешно")
-            
-            self.db = Database()
-            log_error("✅ База данных инициализирована")
-            
-            self.keyboards = Keyboards()
-            log_error("✅ Клавиатуры загружены")
-            
-            self.user_states = {}
-            
-            log_error(f"✅ Бот Hostile Rust запущен!")
-            log_error(f"👑 Администраторы: {ADMIN_IDS}")
-            
-        except Exception as e:
-            log_error(f"❌ Ошибка инициализации: {e}")
-            log_error(traceback.format_exc())
-            raise
+                finally:
+                    session.close()
+                
+                self.vk = vk_api.VkApi(token=TOKEN)
+                self.longpoll = VkLongPoll(self.vk)
+                self.vk_session = self.vk.get_api()
+                
+                test = self.vk_session.users.get()
+                log_error(f"✅ Подключение к VK API успешно")
+                
+                self.keyboards = Keyboards()
+                log_error("✅ Клавиатуры загружены")
+                
+                self.user_states = {}
+                
+                log_error(f"✅ Бот Hostile Rust запущен!")
+                log_error(f"👑 Администраторы: {ADMIN_IDS}")
+                
+            except Exception as e:
+                log_error(f"❌ Ошибка инициализации: {e}")
+                log_error(traceback.format_exc())
+                raise
     
     def send_message(self, user_id, message, keyboard=None, attachment=None):
         """Отправка сообщения пользователю"""
