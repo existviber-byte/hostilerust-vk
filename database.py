@@ -15,6 +15,7 @@ class User(Base):
     subscribed = Column(Boolean, default=True)
     registered_at = Column(DateTime, default=datetime.now)
     tickets = relationship("Ticket", back_populates="user")
+    promo_uses = relationship("PromoUsage", back_populates="user")
 
 class PromoCode(Base):
     __tablename__ = 'promocodes'
@@ -23,6 +24,16 @@ class PromoCode(Base):
     description = Column(String)
     created_at = Column(DateTime, default=datetime.now)
     is_active = Column(Boolean, default=True)
+    usage_history = relationship("PromoUsage", back_populates="promo")
+
+class PromoUsage(Base):
+    __tablename__ = 'promo_usage'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'))
+    promo_id = Column(Integer, ForeignKey('promocodes.id'))
+    used_at = Column(DateTime, default=datetime.now)
+    user = relationship("User", back_populates="promo_uses")
+    promo = relationship("PromoCode", back_populates="usage_history")
 
 class Ticket(Base):
     __tablename__ = 'tickets'
@@ -47,9 +58,7 @@ class TicketMessage(Base):
 
 class Database:
     def __init__(self, db_url=None):
-        # Используем фиксированный путь к базе данных
         if db_url is None:
-            # База данных будет в той же папке, что и скрипт
             db_path = os.path.join(os.path.dirname(__file__), 'hostile_rust.db')
             db_url = f'sqlite:///{db_path}'
         
@@ -71,8 +80,6 @@ class Database:
                 session.add(user)
                 session.commit()
                 print(f"✅ Новый пользователь: {first_name} {last_name} (ID: {vk_id})")
-            else:
-                print(f"📌 Пользователь уже существует: {first_name} {last_name} (ID: {vk_id})")
             return user
         except Exception as e:
             print(f"❌ Ошибка add_user: {e}")
@@ -98,7 +105,6 @@ class Database:
     def add_promo(self, code, description):
         session = self.get_session()
         try:
-            # Проверяем, существует ли уже такой промокод
             existing = session.query(PromoCode).filter_by(code=code).first()
             if existing:
                 print(f"⚠️ Промокод {code} уже существует")
@@ -125,7 +131,6 @@ class Database:
                 session.commit()
                 print(f"✅ Удален промокод: {code}")
                 return True
-            print(f"⚠️ Промокод {code} не найден")
             return False
         except Exception as e:
             print(f"❌ Ошибка delete_promo: {e}")
@@ -141,6 +146,61 @@ class Database:
         finally:
             session.close()
     
+    def record_promo_usage(self, user_id, promo_code):
+        """Запись использования промокода (только для истории, без активации в игре)"""
+        session = self.get_session()
+        try:
+            user = session.query(User).filter_by(vk_id=user_id).first()
+            promo = session.query(PromoCode).filter_by(code=promo_code, is_active=True).first()
+            
+            if not user or not promo:
+                return False, "Пользователь или промокод не найден"
+            
+            # Проверяем, использовал ли уже пользователь этот промокод
+            used = session.query(PromoUsage).filter_by(
+                user_id=user.id, promo_id=promo.id
+            ).first()
+            
+            if used:
+                return False, "Вы уже запрашивали этот промокод"
+            
+            usage = PromoUsage(user_id=user.id, promo_id=promo.id)
+            session.add(usage)
+            session.commit()
+            return True, "Промокод сохранен в историю"
+        except Exception as e:
+            print(f"❌ Ошибка record_promo_usage: {e}")
+            session.rollback()
+            return False, "Ошибка записи"
+        finally:
+            session.close()
+    
+    def get_last_promo_user(self, promo_code):
+        """Получить последнего пользователя, получившего промокод"""
+        session = self.get_session()
+        try:
+            promo = session.query(PromoCode).filter_by(code=promo_code).first()
+            if not promo:
+                return None
+            
+            usage = session.query(PromoUsage).filter_by(promo_id=promo.id).order_by(PromoUsage.used_at.desc()).first()
+            if usage:
+                return usage.user, usage.used_at
+            return None
+        except Exception as e:
+            print(f"❌ Ошибка get_last_promo_user: {e}")
+            return None
+        finally:
+            session.close()
+    
+    def get_all_promo_usage(self):
+        """Получить всю историю использования промокодов"""
+        session = self.get_session()
+        try:
+            return session.query(PromoUsage).order_by(PromoUsage.used_at.desc()).all()
+        finally:
+            session.close()
+    
     def create_ticket(self, vk_id, title):
         session = self.get_session()
         try:
@@ -149,7 +209,6 @@ class Database:
                 user = User(vk_id=vk_id, first_name="Unknown", last_name="User")
                 session.add(user)
                 session.commit()
-                print(f"✅ Создан пользователь {vk_id} для тикета")
             
             ticket = Ticket(user_id=user.id, title=title)
             session.add(ticket)
@@ -192,12 +251,7 @@ class Database:
                 ticket.status = 'closed'
                 ticket.closed_at = datetime.now()
                 session.commit()
-                print(f"✅ Тикет #{ticket_id} закрыт")
                 return True
-            return False
-        except Exception as e:
-            print(f"❌ Ошибка close_ticket: {e}")
-            session.rollback()
             return False
         finally:
             session.close()
@@ -207,7 +261,10 @@ class Database:
         try:
             user = session.query(User).filter_by(vk_id=vk_id).first()
             if user:
-                return session.query(Ticket).filter_by(user_id=user.id).order_by(Ticket.created_at.desc()).all()
+                tickets = session.query(Ticket).filter_by(user_id=user.id).order_by(Ticket.created_at.desc()).all()
+                for ticket in tickets:
+                    _ = ticket.messages
+                return tickets
             return []
         finally:
             session.close()
@@ -215,7 +272,11 @@ class Database:
     def get_open_tickets(self):
         session = self.get_session()
         try:
-            return session.query(Ticket).filter_by(status='open').all()
+            tickets = session.query(Ticket).filter_by(status='open').all()
+            for ticket in tickets:
+                _ = ticket.user
+                _ = ticket.messages
+            return tickets
         finally:
             session.close()
     
@@ -223,20 +284,5 @@ class Database:
         session = self.get_session()
         try:
             return session.query(TicketMessage).filter_by(ticket_id=ticket_id).order_by(TicketMessage.created_at).all()
-        finally:
-            session.close()
-    
-    def get_stats(self):
-        """Получение статистики"""
-        session = self.get_session()
-        try:
-            users_count = session.query(User).count()
-            promos_count = session.query(PromoCode).filter_by(is_active=True).count()
-            tickets_count = session.query(Ticket).filter_by(status='open').count()
-            return {
-                'users': users_count,
-                'promos': promos_count,
-                'tickets': tickets_count
-            }
         finally:
             session.close()
