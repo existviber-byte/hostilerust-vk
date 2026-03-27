@@ -1,5 +1,5 @@
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
-import config  # Импортируем весь модуль
+import config
 
 class Keyboards:
     @staticmethod
@@ -27,6 +27,8 @@ class Keyboards:
         keyboard.add_button('🎫 Тикеты админ', color=VkKeyboardColor.SECONDARY)
         keyboard.add_button('👥 Пользователи', color=VkKeyboardColor.PRIMARY)
         keyboard.add_line()
+        keyboard.add_button('📜 История промо', color=VkKeyboardColor.SECONDARY)
+        keyboard.add_line()
         keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY)
         return keyboard
     
@@ -49,7 +51,6 @@ class Keyboards:
     @staticmethod
     def shop_keyboard():
         keyboard = VkKeyboard(inline=True)
-        # Используем config.SHOP_URL
         keyboard.add_openlink_button('🛒 Открыть магазин', config.SHOP_URL)
         keyboard.add_line()
         keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY,
