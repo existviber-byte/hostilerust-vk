@@ -3,6 +3,8 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 import os
+from pathlib import Path
+import shutil
 
 Base = declarative_base()
 
@@ -58,13 +60,24 @@ class TicketMessage(Base):
 
 class Database:
     def __init__(self, db_url=None):
-        # ФИКСИРОВАННЫЙ ПУТЬ К БАЗЕ ДАННЫХ
         if db_url is None:
-            # Получаем абсолютный путь к папке с ботом
-            bot_dir = os.path.dirname(os.path.abspath(__file__))
-            db_path = os.path.join(bot_dir, 'hostile_rust.db')
-            db_url = f'sqlite:///{db_path}'
-            print(f"📁 Путь к базе данных: {db_path}")
+            # Создаем папку data если её нет
+            data_dir = Path("data")
+            data_dir.mkdir(exist_ok=True)
+            
+            # Путь к БД внутри папки data
+            db_path = data_dir / 'hostile_rust.db'
+            
+            # Проверяем, есть ли старая БД в корне и перемещаем
+            old_db = Path("hostile_rust.db")
+            if old_db.exists() and not db_path.exists():
+                shutil.copy2(old_db, db_path)
+                print(f"✅ База данных перемещена из {old_db} в {db_path}")
+            elif old_db.exists() and db_path.exists():
+                print(f"⚠️ Найдены две базы данных. Используется {db_path}")
+            
+            db_url = f'sqlite:///{db_path.absolute()}'
+            print(f"📁 Путь к базе данных: {db_path.absolute()}")
         
         self.db_path = db_url
         # Добавляем параметры для корректной работы
