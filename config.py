@@ -1,32 +1,38 @@
 import os
-# Удалите эти строки:
-# from dotenv import load_dotenv
-# load_dotenv()
 
+# Токен группы ВК
 TOKEN = os.getenv('VK_TOKEN')
 GROUP_ID = int(os.getenv('GROUP_ID'))
 ADMIN_IDS = [int(id) for id in os.getenv('ADMIN_IDS', '').split(',')]
 
-# ⚡️ ВАЖНО: Добавьте эту строку!
+# Ссылки
 SHOP_URL = "https://hostilerust.gamestores.app/"
+DISCORD_URL = "https://discord.gg/D6Rn6aXDhX"
+VK_GROUP_URL = "https://vk.com/hostile_rust"
 
-# Настройки серверов для мониторинга
+# Настройки тикетов
+TICKET_COOLDOWN_MINUTES = 10
+PROMO_EXPIRATION_DAYS = 30
+
+# Настройки серверов
 SERVERS = {
-    'main': {
+    'x5': {
         'name': 'Hostile Rust [x5]',
         'ip': '37.230.137.6:20600',
-        'monitor_url': 'https://hostilerust.gamestores.app/',
-        'selector': '.server-card:first-child .online'
+        'rcon_ip': '37.230.137.6',
+        'rcon_port': 20601,
+        'rcon_password': os.getenv('RCON_PASSWORD_X5', '')
     },
-    'second': {
+    'x100': {
         'name': 'Hostile Rust [x100]',
         'ip': '78.46.56.22:20500',
-        'monitor_url': 'https://hostilerust.gamestores.app/',
-        'selector': '.server-card:last-child .online'
+        'rcon_ip': '78.46.56.22',
+        'rcon_port': 20501,
+        'rcon_password': os.getenv('RCON_PASSWORD_X100', '')
     }
 }
 
-# Правила сервера (уберите **жирный** шрифт, он не работает в ВК)
+# Правила сервера
 RULES = [
     "⚠️ НЕЗНАНИЕ ПРАВИЛ НЕ ОСВОБОЖДАЕТ ОТ ОТВЕТСТВЕННОСТИ",
     "✅ Зайдя на сервер, Вы автоматически соглашаетесь со всеми правилами.",
@@ -71,6 +77,5 @@ RULES = [
     "⚠️ Администрация не возвращает потерянный лут!"
 ]
 
-# Эти строки должны быть в конце
-SHOP_URL = "https://hostilerust.gamestores.app/"
+# Расписание вайпов
 WIPE_SCHEDULE = "Каждый четверг месяца в 12:00 МСК, кроме первого четверга месяца в 22:00 МСК!"
