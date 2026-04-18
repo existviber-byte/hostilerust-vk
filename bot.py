@@ -2,108 +2,56 @@ import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
 from vk_api.utils import get_random_id
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
-from datetime import datetime
+from datetime import datetime, timedelta
+import asyncio
+import json
+import logging
+import random
 import threading
 import time
-import sys
-import os
-import traceback
-import json
+from pathlib import Path
 
-# ==== ПРОСТОЕ ЛОГИРОВАНИЕ В ФАЙЛ ====
-log_file = open('bot_errors.log', 'a', encoding='utf-8')
+from config import *
+from database import Database
+from keyboards import Keyboards
 
-def log_error(text):
-    """Запись ошибки в файл"""
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    log_file.write(f"[{timestamp}] {text}\n")
-    log_file.flush()
-    print(text)
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(levelname)s | %(message)s',
+    handlers=[
+        logging.FileHandler('vk_bot.log'),
+        logging.StreamHandler()
+    ]
+)
+log = logging.getLogger("vk_bot")
 
-log_error("="*50)
-log_error("ЗАПУСК БОТА HOSTILE RUST")
-log_error("="*50)
-
-try:
-    from config import *
-    log_error(f"✅ config загружен: TOKEN={'есть' if TOKEN else 'НЕТ'}, GROUP_ID={GROUP_ID}")
-except Exception as e:
-    log_error(f"❌ Ошибка загрузки config: {e}")
-    log_error(traceback.format_exc())
-    sys.exit(1)
-
-try:
-    from database import Database, User, PromoCode, PromoUsage, Ticket, TicketMessage
-    log_error("✅ database загружен")
-except Exception as e:
-    log_error(f"❌ Ошибка загрузки database: {e}")
-    log_error(traceback.format_exc())
-
-try:
-    from keyboards import Keyboards
-    log_error("✅ keyboards загружен")
-except Exception as e:
-    log_error(f"❌ Ошибка загрузки keyboards: {e}")
-    log_error(traceback.format_exc())
-
-class HostileRustBot:
+class HostileRustVKBot:
     def __init__(self):
-            try:
-                log_error("Инициализация бота...")
-                
-                # Проверяем существование базы данных
-                db_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hostile_rust.db')
-                
-                if os.path.exists(db_file):
-                    log_error(f"📁 Найдена существующая база данных: {db_file}")
-                    # Показываем размер файла для проверки
-                    size = os.path.getsize(db_file)
-                    log_error(f"📏 Размер файла БД: {size} байт")
-                else:
-                    log_error(f"📁 База данных не найдена, будет создана новая: {db_file}")
-                
-                # Создаем экземпляр базы данных
-                self.db = Database()
-                log_error("✅ База данных инициализирована")
-                
-                # Проверяем количество пользователей после инициализации
-                session = self.db.get_session()
-                try:
-                    from database import User
-                    users_count = session.query(User).count()
-                    promos_count = session.query(PromoCode).count()
-                    log_error(f"👥 В базе данных {users_count} пользователей")
-                    log_error(f"🎁 В базе данных {promos_count} промокодов")
-                except Exception as e:
-                    log_error(f"⚠️ Не удалось проверить БД: {e}")
-                finally:
-                    session.close()
-                
-                self.vk = vk_api.VkApi(token=TOKEN)
-                self.longpoll = VkLongPoll(self.vk)
-                self.vk_session = self.vk.get_api()
-                
-                test = self.vk_session.users.get()
-                log_error(f"✅ Подключение к VK API успешно")
-                
-                self.keyboards = Keyboards()
-                log_error("✅ Клавиатуры загружены")
-                
-                self.user_states = {}
-                
-                log_error(f"✅ Бот Hostile Rust запущен!")
-                log_error(f"👑 Администраторы: {ADMIN_IDS}")
-                
-            except Exception as e:
-                log_error(f"❌ Ошибка инициализации: {e}")
-                log_error(traceback.format_exc())
-                raise
+        log.info("="*50)
+        log.info("ЗАПУСК VK БОТА HOSTILE RUST")
+        log.info("="*50)
+        
+        # База данных
+        self.db = Database()
+        
+        # VK API
+        self.vk = vk_api.VkApi(token=TOKEN)
+        self.longpoll = VkLongPoll(self.vk)
+        self.vk_api = self.vk.get_api()
+        
+        # Клавиатуры
+        self.keyboards = Keyboards()
+        
+        # Состояния пользователей
+        self.user_states = {}
+        
+        log.info("✅ VK Бот Hostile Rust запущен!")
+        log.info(f"👑 Администраторы: {ADMIN_IDS}")
     
     def send_message(self, user_id, message, keyboard=None, attachment=None):
-        """Отправка сообщения пользователю"""
+        """Отправка сообщения"""
         try:
-            log_error(f"Отправка сообщения {user_id}: {message[:50]}...")
-            
             params = {
                 'user_id': user_id,
                 'message': message,
@@ -117,709 +65,564 @@ class HostileRustBot:
             if attachment:
                 params['attachment'] = attachment
             
-            self.vk_session.messages.send(**params)
-            log_error(f"✅ Сообщение отправлено {user_id}")
+            self.vk_api.messages.send(**params)
             return True
         except Exception as e:
-            log_error(f"❌ Ошибка отправки сообщения {user_id}: {e}")
+            log.error(f"❌ Ошибка отправки сообщения {user_id}: {e}")
             return False
     
     def send_admin_message(self, message, keyboard=None):
-        """Отправка сообщения всем админам"""
+        """Отправка всем админам"""
         for admin_id in ADMIN_IDS:
             self.send_message(admin_id, message, keyboard)
     
-    def handle_message(self, user_id, message, payload=None):
-        """Обработка входящих сообщений"""
-        log_error(f"Получено сообщение от {user_id}: '{message}', payload={payload}")
+    async def init_db(self):
+        """Инициализация БД"""
+        await self.db.init()
+    
+    def handle_message(self, user_id, text, payload=None):
+        """Обработка сообщений"""
+        log.info(f"📨 Сообщение от {user_id}: {text[:50]}")
         
-        try:
-            # ===== 1. ПРОВЕРЯЕМ PAYLOAD (КНОПКИ) =====
-            if payload:
-                if isinstance(payload, str):
-                    try:
-                        payload = json.loads(payload)
-                    except:
-                        pass
+        # Регистрируем пользователя
+        asyncio.run(self.db.add_user(user_id, "", ""))
+        
+        # Обработка payload (inline кнопки)
+        if payload:
+            try:
+                payload = json.loads(payload) if isinstance(payload, str) else payload
+                command = payload.get('command', '')
                 
-                if isinstance(payload, dict):
-                    command = payload.get('command')
-                    log_error(f"🎯 PAYLOAD: command={command}")
-                    
-                    if command == 'back_to_main':
-                        self.send_main_menu(user_id)
-                        return
-                    elif command == 'create_ticket':
-                        self.start_ticket_creation(user_id)
-                        return
-                    elif command == 'view_tickets':
-                        self.show_my_tickets(user_id)
-                        return
-                    elif command.startswith('view_ticket_'):
-                        try:
-                            ticket_id = int(command.replace('view_ticket_', ''))
-                            self.show_ticket_details(user_id, ticket_id)
-                        except:
-                            pass
-                        return
-                    elif command == 'admin_tickets':
-                        if user_id in ADMIN_IDS:
-                            self.show_admin_tickets(user_id)
-                        return
-                    elif command == 'admin_promo_history':
-                        if user_id in ADMIN_IDS:
-                            self.show_promo_history(user_id)
-                        return
-                    elif command.startswith('admin_reply_'):
-                        if user_id in ADMIN_IDS:
-                            try:
-                                ticket_id = int(command.replace('admin_reply_', ''))
-                                self.start_admin_reply(user_id, ticket_id)
-                            except:
-                                pass
-                        return
-                    elif command.startswith('admin_close_'):
-                        if user_id in ADMIN_IDS:
-                            try:
-                                ticket_id = int(command.replace('admin_close_', ''))
-                                self.close_ticket_admin(user_id, ticket_id)
-                            except:
-                                pass
-                        return
-                    elif command.startswith('copy_ip_'):
-                        server_key = command.replace('copy_ip_', '')
-                        self.handle_copy_ip(user_id, server_key)
-                        return
-            
-            # ===== 2. ПРОВЕРЯЕМ СОСТОЯНИЯ ПОЛЬЗОВАТЕЛЯ =====
-            if user_id in self.user_states:
-                state = self.user_states[user_id]
-                log_error(f"📌 Состояние: {state}")
-                
-                if state == 'waiting_ticket':
-                    if len(message.strip()) < 3:
-                        self.send_message(user_id, "❌ Слишком короткое описание. Опишите проблему подробнее.", self.keyboards.back_keyboard())
-                        return
-                    self.create_ticket(user_id, message)
+                if command == 'back_to_main':
+                    self.show_main_menu(user_id)
                     return
-                elif state == 'waiting_promo_add':
-                    self.add_promo(user_id, message)
+                elif command.startswith('copy_ip_'):
+                    server = command.replace('copy_ip_', '')
+                    self.send_server_ip(user_id, server)
                     return
-                elif state == 'waiting_promo_delete':
-                    self.delete_promo(user_id, message)
+                elif command.startswith('ticket_answer_'):
+                    ticket_id = int(command.replace('ticket_answer_', ''))
+                    self.start_ticket_answer(user_id, ticket_id)
                     return
-                elif state == 'waiting_broadcast':
-                    self.send_broadcast(user_id, message)
-                    return
-                elif state.startswith('ticket_reply_'):
-                    try:
-                        ticket_id = int(state.replace('ticket_reply_', ''))
-                        self.reply_to_ticket(user_id, ticket_id, message)
-                    except:
-                        pass
-                    return
-            
-            # ===== 3. ПРОВЕРЯЕМ КОМАНДЫ С ! (ДЛЯ АДМИНОВ) =====
-            if message.startswith('!') and user_id in ADMIN_IDS:
-                parts = message[1:].split()
-                if len(parts) >= 2:
-                    cmd = parts[0].lower()
-                    if cmd == 'ответ' and len(parts) >= 3:
-                        try:
-                            ticket_id = int(parts[1])
-                            reply_text = ' '.join(parts[2:])
-                            self.user_states[user_id] = f'ticket_reply_{ticket_id}'
-                            self.reply_to_ticket(user_id, ticket_id, reply_text)
-                            return
-                        except:
-                            self.send_message(user_id, "❌ Неверный формат. Используйте: !ответ [ID] [текст]")
-                    elif cmd == 'закрыть':
-                        try:
-                            ticket_id = int(parts[1])
-                            self.close_ticket_admin(user_id, ticket_id)
-                            return
-                        except:
-                            self.send_message(user_id, "❌ Неверный формат. Используйте: !закрыть [ID]")
-                return
-            
-            # ===== 4. ПРОВЕРЯЕМ ТЕКСТОВЫЕ КОМАНДЫ =====
-            msg = message.lower().strip()
-            
-            if msg in ['начать', 'start', 'меню', 'привет', 'старт']:
-                self.register_user(user_id)
-                self.send_main_menu(user_id)
-                return
-            elif msg in ['🎁 промокоды', 'промокоды']:
-                self.show_promocodes(user_id)
-                return
-            elif msg in ['🖥 сервера', 'сервера', 'сервер']:
-                self.show_server_info(user_id)
-                return
-            elif msg in ['📜 правила', 'правила']:
-                self.show_rules(user_id)
-                return
-            elif msg in ['🎫 поддержка', 'поддержка', 'тикеты']:
-                self.show_tickets_menu(user_id)
-                return
-            elif msg in ['🛒 магазин', 'магазин']:
-                self.show_shop(user_id)
-                return
-            elif msg in ['🔄 вайп', 'вайп']:
-                self.show_wipe_info(user_id)
-                return
-            elif msg in ['➕ создать тикет', 'создать тикет']:
-                self.start_ticket_creation(user_id)
-                return
-            elif msg in ['👤 мои тикеты', 'мои тикеты']:
-                self.show_my_tickets(user_id)
-                return
-            
-            # Админские команды
-            if user_id in ADMIN_IDS:
-                if msg in ['админ', 'admin']:
-                    self.show_admin_menu(user_id)
-                    return
-                elif msg in ['📊 статистика', 'статистика']:
-                    self.show_stats(user_id)
-                    return
-                elif msg in ['📨 рассылка', 'рассылка']:
-                    self.start_broadcast(user_id)
-                    return
-                elif msg in ['➕ добавить промо', 'добавить промо']:
-                    self.start_add_promo(user_id)
-                    return
-                elif msg in ['➖ удалить промо', 'удалить промо']:
-                    self.start_delete_promo(user_id)
-                    return
-                elif msg in ['🎫 тикеты админ', 'тикеты админ']:
+                elif command == 'admin_tickets':
                     self.show_admin_tickets(user_id)
                     return
-                elif msg in ['👥 пользователи', 'пользователи']:
-                    self.show_users_list(user_id)
+                elif command.startswith('confirm_delete_promo_'):
+                    code = command.replace('confirm_delete_promo_', '')
+                    self.delete_promo(user_id, code)
                     return
-                elif msg in ['📜 история промо', 'история промо']:
-                    self.show_promo_history(user_id)
-                    return
-                elif msg in ['◀️ назад', 'назад']:
-                    self.send_main_menu(user_id)
-                    return
+            except Exception as e:
+                log.error(f"❌ Ошибка обработки payload: {e}")
+        
+        # Обработка состояний
+        if user_id in self.user_states:
+            state = self.user_states[user_id]
             
-            # ===== 5. ПРОВЕРЯЕМ НА ВВОД ПРОМОКОДА =====
-            if self.check_promo_code(user_id, message):
+            if state == 'waiting_ticket':
+                self.create_ticket(user_id, text)
                 return
-            
-            # ===== 6. ЕСЛИ НИЧЕГО НЕ ПОДОШЛО - РЕГИСТРИРУЕМ И ОТВЕЧАЕМ МЕНЮ =====
-            # Автоматическая регистрация пользователя (все кто пишут - подписываются)
-            self.register_user(user_id)
-            
-            try:
-                user_info = self.vk_session.users.get(user_ids=user_id)[0]
-                name = user_info['first_name']
-                welcome = f"☠ Приветствую тебя выживший, {name}! ☠\n\nЯ бот сервера Hostile Rust.\nВот что я умею:"
-            except:
-                welcome = "☠ Привет! Я бот серверов Hostile Rust ☠\n\nВот что я умею:"
-            
-            self.send_message(user_id, welcome, self.keyboards.main_keyboard())
-                
-        except Exception as e:
-            log_error(f"❌ Ошибка в handle_message: {e}")
-            log_error(traceback.format_exc())
-            self.send_message(user_id, "❌ Произошла внутренняя ошибка. Попробуйте позже.")
+            elif state == 'waiting_promo_add':
+                self.add_promo(user_id, text)
+                return
+            elif state == 'waiting_broadcast':
+                self.send_broadcast(user_id, text)
+                return
+            elif state.startswith('ticket_reply_'):
+                ticket_id = int(state.replace('ticket_reply_', ''))
+                self.reply_to_ticket(user_id, ticket_id, text)
+                return
+        
+        # Обработка текстовых команд
+        text_lower = text.lower().strip()
+        
+        if text_lower in ['начать', 'start', 'меню', 'привет']:
+            self.show_main_menu(user_id)
+        elif text_lower in ['🎁 промокоды', 'промокоды', 'промокод']:
+            self.show_promocodes(user_id)
+        elif text_lower in ['🎮 сервера', 'сервера', 'сервер']:
+            self.show_servers(user_id)
+        elif text_lower in ['📜 правила', 'правила']:
+            self.show_rules(user_id)
+        elif text_lower in ['🎫 поддержка', 'поддержка', 'тикеты']:
+            self.show_tickets_menu(user_id)
+        elif text_lower in ['🛒 магазин', 'магазин']:
+            self.show_shop(user_id)
+        elif text_lower in ['⏳ до вайпа', 'вайп']:
+            self.show_wipe_info(user_id)
+        elif text_lower in ['📋 ip серверов', 'ip']:
+            self.show_server_ips(user_id)
+        elif text_lower in ['➕ создать тикет']:
+            self.start_ticket_creation(user_id)
+        elif text_lower in ['📋 мои тикеты']:
+            self.show_my_tickets(user_id)
+        elif text_lower in ['◀️ назад в меню', 'назад']:
+            self.show_main_menu(user_id)
+        
+        # Админские команды
+        elif user_id in ADMIN_IDS:
+            if text_lower in ['админ', 'admin']:
+                self.show_admin_menu(user_id)
+            elif text_lower in ['➕ добавить промо']:
+                self.start_add_promo(user_id)
+            elif text_lower in ['➖ удалить промо']:
+                self.show_promo_list_for_delete(user_id)
+            elif text_lower in ['📋 список промокодов']:
+                self.show_promo_list(user_id)
+            elif text_lower in ['👥 пользователи']:
+                self.show_users_list(user_id)
+            elif text_lower in ['📊 статистика']:
+                self.show_stats(user_id)
+            elif text_lower in ['📩 тикеты']:
+                self.show_admin_tickets(user_id)
+            elif text_lower in ['📢 рассылка']:
+                self.start_broadcast(user_id)
+        
+        # Проверка на ввод промокода
+        elif self.check_promo_code(user_id, text):
+            pass
+        else:
+            self.show_main_menu(user_id)
     
-    def register_user(self, user_id):
-        """Регистрация нового пользователя (автоматическая при любом сообщении)"""
-        try:
-            existing_user = self.db.get_user(user_id)
-            if existing_user:
-                return existing_user
-            
-            log_error(f"🆕 Автоматическая регистрация нового пользователя {user_id}")
-            user_info = self.vk_session.users.get(user_ids=user_id)[0]
-            user = self.db.add_user(user_id, user_info['first_name'], user_info['last_name'])
-            log_error(f"✅ Пользователь {user_id} зарегистрирован")
-            return user
-        except Exception as e:
-            log_error(f"❌ Ошибка регистрации: {e}")
-            return None
-    
-    def send_main_menu(self, user_id):
+    def show_main_menu(self, user_id):
         """Главное меню"""
         try:
-            try:
-                user_info = self.vk_session.users.get(user_ids=user_id)[0]
-                name = user_info['first_name']
-                welcome = f"🦀 Добро пожаловать, {name}! 🦀\n\nВыберите действие:"
-            except:
-                welcome = "🦀 Добро пожаловать в Hostile Rust! 🦀\n\nВыберите действие:"
-            
-            self.send_message(user_id, welcome, self.keyboards.main_keyboard())
-        except Exception as e:
-            log_error(f"❌ Ошибка отправки меню: {e}")
+            user_info = self.vk_api.users.get(user_ids=user_id)[0]
+            name = user_info['first_name']
+            welcome = f"🔥 Привет, {name}!\n\n🎮 Добро пожаловать в Hostile Rust!\nВыберите действие:"
+        except:
+            welcome = "🔥 Добро пожаловать в Hostile Rust!\n\nВыберите действие:"
+        
+        self.send_message(user_id, welcome, self.keyboards.main_keyboard())
     
-    def show_server_info(self, user_id):
+    def show_promocodes(self, user_id):
+        """Показ доступных промокодов"""
+        promos = asyncio.run(self.db.get_active_promos_simple())
+        
+        if not promos:
+            self.send_message(user_id, "😔 Нет активных промокодов", self.keyboards.back_keyboard())
+            return
+        
+        # Выбираем случайный промокод
+        promo = random.choice(promos)
+        code = promo[0] if isinstance(promo, tuple) else promo
+        
+        # Сохраняем в историю
+        asyncio.run(self.db.add_promo_history(user_id, code))
+        asyncio.run(self.db.update_last_promo(user_id))
+        
+        message = f"🎁 Ваш промокод:\n\n🔑 {code}\n\n💡 Активируйте в магазине:\n{SHOP_URL}"
+        self.send_message(user_id, message, self.keyboards.back_keyboard())
+    
+    def show_servers(self, user_id):
         """Информация о серверах"""
-        try:
-            message = "🖥 СЕРВЕРА HOSTILE RUST 🖥\n\n"
-            
-            for key, server in SERVERS.items():
-                message += f"{server['name']}\n"
-                message += f"🟢 ONLINE\n"
-                message += f"📌 IP: {server['ip']}\n"
-                message += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
-            
-            message += "💡 Как подключиться:\n"
-            message += "1. Копируйте IP адрес выше\n"
-            message += "2. В игре нажмите F1\n"
-            message += "3. Введите: client.connect IP\n"
-            message += "4. Нажмите Enter\n\n"
-            message += "🔗 Мониторинг: https://hostilerust.gamestores.app/"
-            
-            keyboard = VkKeyboard(inline=True)
-            for key, server in SERVERS.items():
-                keyboard.add_button(f'📋 Копировать {server["name"]}', color=VkKeyboardColor.PRIMARY, payload={'command': f'copy_ip_{key}'})
-                keyboard.add_line()
-            keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY, payload={'command': 'back_to_main'})
-            
-            self.send_message(user_id, message, keyboard)
-        except Exception as e:
-            log_error(f"❌ Ошибка show_server_info: {e}")
+        message = "🎮 СЕРВЕРА HOSTILE RUST\n\n"
+        
+        for key, server in SERVERS.items():
+            message += f"🟢 {server['name']}\n"
+            message += f"📌 {server['ip']}\n\n"
+        
+        self.send_message(user_id, message, self.keyboards.servers_keyboard())
     
-    def handle_copy_ip(self, user_id, server_key):
-        try:
-            server = SERVERS.get(server_key)
-            if server:
-                self.send_message(user_id, f"📋 IP адрес сервера {server['name']}:\n{server['ip']}\n\nПросто выделите и копируйте текст выше!", self.keyboards.back_keyboard())
-        except Exception as e:
-            log_error(f"❌ Ошибка handle_copy_ip: {e}")
+    def send_server_ip(self, user_id, server_key):
+        """Отправка IP сервера"""
+        server = SERVERS.get(server_key)
+        if server:
+            self.send_message(user_id, f"📋 IP {server['name']}:\n{server['ip']}")
+    
+    def show_server_ips(self, user_id):
+        """Показ всех IP для копирования"""
+        message = "📋 IP СЕРВЕРОВ\n\n"
+        for key, server in SERVERS.items():
+            message += f"{server['name']}:\n{server['ip']}\n\n"
+        
+        self.send_message(user_id, message, self.keyboards.back_keyboard())
+    
+    def show_rules(self, user_id):
+        """Правила сервера"""
+        rules_text = "📜 ПРАВИЛА HOSTILE RUST\n\n" + "\n\n".join(RULES)
+        rules_text += f"\n\n🔗 Discord: {DISCORD_URL}\n🔗 VK: {VK_GROUP_URL}"
+        self.send_message(user_id, rules_text, self.keyboards.back_keyboard())
+    
+    def show_shop(self, user_id):
+        """Магазин"""
+        message = f"🛒 МАГАЗИН HOSTILE RUST\n\n{SHOP_URL}\n\n💡 Перейдите по ссылке для пополнения баланса!"
+        self.send_message(user_id, message, self.keyboards.back_keyboard())
+    
+    def show_wipe_info(self, user_id):
+        """Информация о вайпе"""
+        now = datetime.now()
+        
+        # Поиск следующего четверга
+        days_until_thursday = (3 - now.weekday()) % 7
+        if days_until_thursday == 0 and now.hour >= 12:
+            days_until_thursday = 7
+        
+        next_wipe = now + timedelta(days=days_until_thursday)
+        next_wipe = next_wipe.replace(hour=12, minute=0, second=0)
+        
+        if next_wipe.day <= 7:
+            next_wipe = next_wipe.replace(hour=22)
+        
+        delta = next_wipe - now
+        days = delta.days
+        hours = delta.seconds // 3600
+        minutes = (delta.seconds % 3600) // 60
+        
+        message = f"💣 ДО СЛЕДУЮЩЕГО ВАЙПА\n\n"
+        message += f"🗓 {days} дней\n"
+        message += f"🕒 {hours} часов\n"
+        message += f"⏱ {minutes} минут\n\n"
+        message += f"📅 Расписание:\n{WIPE_SCHEDULE}"
+        
+        self.send_message(user_id, message, self.keyboards.back_keyboard())
     
     # ========== ТИКЕТЫ ==========
     
     def show_tickets_menu(self, user_id):
-        try:
-            tickets = self.db.get_user_tickets(user_id)
-            open_tickets = [t for t in tickets if t.status == 'open']
-            closed_tickets = [t for t in tickets if t.status == 'closed']
-            
-            message = f"🎫 ЦЕНТР ПОДДЕРЖКИ 🎫\n\n📊 Всего обращений: {len(tickets)}\n🟢 Открытых: {len(open_tickets)}\n🔴 Закрытых: {len(closed_tickets)}\n\n"
-            
-            if open_tickets:
-                message += "Последние открытые тикеты:\n"
-                for ticket in open_tickets[:3]:
-                    message += f"• #{ticket.id}: {ticket.title[:50]}...\n"
-            
-            self.send_message(user_id, message, self.keyboards.tickets_menu_keyboard())
-        except Exception as e:
-            log_error(f"❌ Ошибка show_tickets_menu: {e}")
-    
-    def show_my_tickets(self, user_id):
-        try:
-            tickets = self.db.get_user_tickets(user_id)
-            if not tickets:
-                self.send_message(user_id, "📭 У вас пока нет обращений в поддержку.", self.keyboards.tickets_menu_keyboard())
-                return
-            
-            message = "📋 МОИ ТИКЕТЫ 📋\n\n"
-            for ticket in tickets[-10:]:
-                status_emoji = "🟢" if ticket.status == 'open' else "🔴"
-                message += f"{status_emoji} #{ticket.id} {ticket.title}\n   📅 {ticket.created_at.strftime('%d.%m.%Y %H:%M')}\n"
-                
-                messages = self.db.get_ticket_messages(ticket.id)
-                if messages:
-                    last = messages[-1]
-                    message += f"   💬 {'Админ' if last.is_admin else 'Вы'}: {last.message[:50]}...\n"
-                message += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
-            
-            self.send_message(user_id, message, self.keyboards.tickets_menu_keyboard())
-        except Exception as e:
-            log_error(f"❌ Ошибка show_my_tickets: {e}")
-    
-    def show_ticket_details(self, user_id, ticket_id):
-        try:
-            ticket = self.db.get_ticket(ticket_id)
-            if not ticket or ticket.user.vk_id != user_id:
-                self.send_message(user_id, "❌ Тикет не найден", self.keyboards.back_keyboard())
-                return
-            
-            messages = self.db.get_ticket_messages(ticket_id)
-            status_emoji = "🟢" if ticket.status == 'open' else "🔴"
-            message = f"{status_emoji} ТИКЕТ #{ticket_id}\n\n📝 {ticket.title}\n📅 {ticket.created_at.strftime('%d.%m.%Y %H:%M')}\n\nПереписка:\n"
-            
-            for msg in messages:
-                sender = "👤 Вы" if msg.user_id == user_id else "👑 Админ"
-                message += f"{sender}: {msg.message}\n"
-            
-            if ticket.status == 'closed':
-                message += f"\n🔒 Закрыт: {ticket.closed_at.strftime('%d.%m.%Y %H:%M')}"
-            
-            self.send_message(user_id, message, self.keyboards.back_keyboard())
-        except Exception as e:
-            log_error(f"❌ Ошибка show_ticket_details: {e}")
+        """Меню тикетов"""
+        tickets = asyncio.run(self.db.get_user_tickets_count(user_id))
+        message = f"🎫 ПОДДЕРЖКА\n\n📊 Всего обращений: {tickets}\n\nВыберите действие:"
+        self.send_message(user_id, message, self.keyboards.tickets_keyboard())
     
     def start_ticket_creation(self, user_id):
+        """Начало создания тикета"""
+        # Проверка кулдауна
+        last_ticket = asyncio.run(self.db.get_last_ticket(user_id))
+        if last_ticket:
+            last_time = datetime.fromisoformat(last_ticket)
+            if datetime.now() - last_time < timedelta(minutes=TICKET_COOLDOWN_MINUTES):
+                self.send_message(user_id, f"⏳ Тикет можно создавать раз в {TICKET_COOLDOWN_MINUTES} минут", 
+                                self.keyboards.back_keyboard())
+                return
+        
         self.user_states[user_id] = 'waiting_ticket'
-        self.send_message(user_id, "📝 СОЗДАНИЕ ТИКЕТА\n\nОпишите вашу проблему подробно:\n• Что случилось?\n• Когда это произошло?\n• Есть ли доказательства?\n\nАдминистратор ответит в ближайшее время.", self.keyboards.back_keyboard())
+        self.send_message(user_id, "📝 Опишите ваш вопрос подробно:", self.keyboards.back_keyboard())
     
-    def create_ticket(self, user_id, description):
-        try:
-            ticket_id = self.db.create_ticket(user_id, description[:100])
-            if not ticket_id:
-                self.send_message(user_id, "❌ Ошибка при создании тикета", self.keyboards.back_keyboard())
-                return
-            
-            self.db.add_ticket_message(ticket_id, user_id, description, is_admin=False)
-            if user_id in self.user_states:
-                del self.user_states[user_id]
-            
-            self.send_message(user_id, f"✅ Тикет #{ticket_id} создан!\n\nВаше обращение:\n{description}\n\nАдминистратор скоро ответит.", self.keyboards.tickets_menu_keyboard())
-            
-            try:
-                user_info = self.vk_session.users.get(user_ids=user_id)[0]
-                user_name = f"{user_info['first_name']} {user_info['last_name']}"
-            except:
-                user_name = f"id{user_id}"
-            
-            admin_message = f"🎫 НОВЫЙ ТИКЕТ #{ticket_id}\n\n👤 От: {user_name} (@id{user_id})\n📝 {description[:100]}\n\n{description}"
-            
-            for admin_id in ADMIN_IDS:
-                keyboard = VkKeyboard(inline=True)
-                keyboard.add_button(f'✏️ Ответить на тикет #{ticket_id}', color=VkKeyboardColor.PRIMARY, payload={'command': f'admin_reply_{ticket_id}'})
-                keyboard.add_line()
-                keyboard.add_button(f'❌ Закрыть тикет', color=VkKeyboardColor.NEGATIVE, payload={'command': f'admin_close_{ticket_id}'})
-                self.send_message(admin_id, admin_message, keyboard)
-        except Exception as e:
-            log_error(f"❌ Ошибка create_ticket: {e}")
-    
-    def start_admin_reply(self, admin_id, ticket_id):
-        session = self.db.get_session()
-        try:
-            from database import Ticket
-            ticket = session.query(Ticket).filter(Ticket.id == ticket_id).first()
-            if not ticket or ticket.status == 'closed':
-                self.send_message(admin_id, "❌ Тикет не найден или закрыт")
-                return
-            
-            messages = self.db.get_ticket_messages(ticket_id)
-            history = "📋 История тикета:\n\n"
-            for msg in messages[-5:]:
-                sender = "👤 Пользователь" if not msg.is_admin else "👑 Вы"
-                history += f"{sender}: {msg.message[:100]}\n"
-            
-            self.user_states[admin_id] = f'ticket_reply_{ticket_id}'
-            self.send_message(admin_id, f"✏️ ОТВЕТ НА ТИКЕТ #{ticket_id}\n\n{history}\n\n📝 Введите ваш ответ:", self.keyboards.back_keyboard())
-        finally:
-            session.close()
-    
-    def reply_to_ticket(self, admin_id, ticket_id, message):
-        try:
-            session = self.db.get_session()
-            try:
-                from database import Ticket
-                ticket = session.query(Ticket).filter(Ticket.id == ticket_id).first()
-                if not ticket or ticket.status == 'closed':
-                    self.send_message(admin_id, "❌ Тикет не найден или закрыт")
-                    return
-                
-                user_vk_id = ticket.user.vk_id
-                self.db.add_ticket_message(ticket_id, admin_id, message, is_admin=True)
-                
-                user_msg = f"📬 НОВЫЙ ОТВЕТ ПО ТИКЕТУ #{ticket_id}\n\n👨‍💼 Администратор:\n{message}\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\nЧтобы ответить, создайте новый тикет."
-                self.send_message(user_vk_id, user_msg, self.keyboards.tickets_menu_keyboard())
-                self.send_message(admin_id, f"✅ Ответ отправлен пользователю @id{user_vk_id}", self.keyboards.admin_keyboard())
-            finally:
-                session.close()
-            
-            if admin_id in self.user_states:
-                del self.user_states[admin_id]
-        except Exception as e:
-            log_error(f"❌ Ошибка reply_to_ticket: {e}")
-    
-    def close_ticket_admin(self, admin_id, ticket_id):
-        try:
-            session = self.db.get_session()
-            try:
-                from database import Ticket
-                ticket = session.query(Ticket).filter(Ticket.id == ticket_id).first()
-                if not ticket or ticket.status == 'closed':
-                    self.send_message(admin_id, "❌ Тикет не найден или уже закрыт")
-                    return
-                user_vk_id = ticket.user.vk_id
-            finally:
-                session.close()
-            
-            if self.db.close_ticket(ticket_id):
-                self.send_message(user_vk_id, f"🔒 Тикет #{ticket_id} закрыт администратором\n\nЕсли остались вопросы, создайте новый тикет.", self.keyboards.tickets_menu_keyboard())
-                self.send_message(admin_id, f"✅ Тикет #{ticket_id} закрыт", self.keyboards.admin_keyboard())
-        except Exception as e:
-            log_error(f"❌ Ошибка close_ticket_admin: {e}")
-    
-    def show_admin_tickets(self, admin_id):
-        """Показ всех открытых тикетов для админа"""
-        try:
-            log_error(f"📋 Загрузка открытых тикетов для админа {admin_id}")
-            
-            session = self.db.get_session()
-            try:
-                from database import Ticket
-                tickets = session.query(Ticket).filter_by(status='open').all()
-                
-                for ticket in tickets:
-                    _ = ticket.user
-                    _ = ticket.messages
-                
-                if not tickets:
-                    self.send_message(admin_id, "✅ Нет открытых тикетов", self.keyboards.admin_keyboard())
-                    return
-                
-                message = "🎫 ОТКРЫТЫЕ ТИКЕТЫ 🎫\n\n"
-                for ticket in tickets:
-                    user_vk = ticket.user.vk_id
-                    user_name = f"{ticket.user.first_name} {ticket.user.last_name}"
-                    
-                    message += f"#{ticket.id} от @id{user_vk} ({user_name})\n"
-                    message += f"📝 {ticket.title}\n"
-                    message += f"📅 {ticket.created_at.strftime('%d.%m.%Y %H:%M')}\n"
-                    message += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
-                
-                self.send_message(admin_id, message[:4000])
-                
-                keyboard = VkKeyboard(inline=True)
-                for ticket in tickets[:5]:
-                    keyboard.add_button(
-                        f'✏️ Ответить #{ticket.id}',
-                        color=VkKeyboardColor.PRIMARY,
-                        payload={'command': f'admin_reply_{ticket.id}'}
-                    )
-                    keyboard.add_button(
-                        f'❌ Закрыть #{ticket.id}',
-                        color=VkKeyboardColor.NEGATIVE,
-                        payload={'command': f'admin_close_{ticket.id}'}
-                    )
-                    keyboard.add_line()
-                keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY, payload={'command': 'back_to_main'})
-                
-                self.send_message(admin_id, "Выберите действие:", keyboard)
-                log_error(f"✅ Показано {len(tickets)} открытых тикетов")
-                
-            except Exception as e:
-                log_error(f"❌ Ошибка при загрузке тикетов: {e}")
-                log_error(traceback.format_exc())
-                self.send_message(admin_id, "❌ Ошибка загрузки тикетов", self.keyboards.admin_keyboard())
-            finally:
-                session.close()
-                
-        except Exception as e:
-            log_error(f"❌ Ошибка show_admin_tickets: {e}")
-            log_error(traceback.format_exc())
-            self.send_message(admin_id, "❌ Ошибка загрузки тикетов", self.keyboards.admin_keyboard())
-    
-    # ========== ПРОМОКОДЫ ==========
-    
-    def show_promocodes(self, user_id):
-        try:
-            promos = self.db.get_active_promos()
-            if not promos:
-                self.send_message(user_id, "😔 В данный момент нет активных промокодов.\n\nСледите за новостями в нашей группе!", self.keyboards.back_keyboard())
-                return
-            
-            message = "🎁 ДОСТУПНЫЕ ПРОМОКОДЫ 🎁\n\nВведите код в магазине для активации!\n\n"
-            for promo in promos:
-                message += f"🔑 {promo.code}\n📝 {promo.description}\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
-            message += f"\n💡 Промокоды активируются в нашем магазине!\n🛒 {SHOP_URL}"
-            
-            self.send_message(user_id, message, self.keyboards.back_keyboard())
-        except Exception as e:
-            log_error(f"❌ Ошибка show_promocodes: {e}")
-    
-    def check_promo_code(self, user_id, text):
-        try:
-            text = text.strip().upper()
-            for promo in self.db.get_active_promos():
-                if promo.code.upper() == text:
-                    # Записываем в историю, кто запросил промокод
-                    self.db.record_promo_usage(user_id, promo.code)
-                    
-                    self.send_message(
-                        user_id, 
-                        f"🎁 Промокод {promo.code}\n\n{promo.description}\n\n💡 Активируйте его в нашем магазине:\n{SHOP_URL}", 
-                        self.keyboards.back_keyboard()
-                    )
-                    return True
-            return False
-        except Exception as e:
-            log_error(f"❌ Ошибка check_promo_code: {e}")
-            return False
-    
-    def show_promo_history(self, admin_id):
-        """Показать историю получения промокодов (для админа)"""
-        try:
-            session = self.db.get_session()
-            try:
-                from database import PromoUsage, PromoCode, User
-                usages = session.query(PromoUsage).order_by(PromoUsage.used_at.desc()).limit(50).all()
-                
-                if not usages:
-                    self.send_message(admin_id, "📭 История использования промокодов пуста", self.keyboards.admin_keyboard())
-                    return
-                
-                message = "📜 ИСТОРИЯ ПОЛУЧЕНИЯ ПРОМОКОДОВ 📜\n\n"
-                for usage in usages:
-                    user = session.query(User).filter_by(id=usage.user_id).first()
-                    promo = session.query(PromoCode).filter_by(id=usage.promo_id).first()
-                    if user and promo:
-                        time_str = usage.used_at.strftime('%d.%m.%Y %H:%M')
-                        message += f"🔑 {promo.code}\n"
-                        message += f"👤 @id{user.vk_id} ({user.first_name} {user.last_name})\n"
-                        message += f"📅 {time_str}\n"
-                        message += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
-                
-                self.send_message(admin_id, message[:4000], self.keyboards.admin_keyboard())
-                
-            finally:
-                session.close()
-        except Exception as e:
-            log_error(f"❌ Ошибка show_promo_history: {e}")
-            self.send_message(admin_id, "❌ Ошибка загрузки истории", self.keyboards.admin_keyboard())
-    
-    def start_add_promo(self, admin_id):
-        self.user_states[admin_id] = 'waiting_promo_add'
-        self.send_message(admin_id, "➕ ДОБАВЛЕНИЕ ПРОМОКОДА\n\nВведите промокод и описание в формате:\nКОД | Описание\n\nПример: WIPE2024 | Набор ресурсов после вайпа", self.keyboards.back_keyboard())
-    
-    def add_promo(self, admin_id, text):
-        try:
-            if '|' in text:
-                code, desc = text.split('|', 1)
-                code = code.strip().upper()
-                desc = desc.strip()
-            else:
-                code = text.strip().upper()
-                desc = "Промокод"
-            
-            self.db.add_promo(code, desc)
-            del self.user_states[admin_id]
-            self.send_message(admin_id, f"✅ Промокод добавлен!\n\n🔑 Код: {code}\n📝 Описание: {desc}\n\nИгроки могут активировать его в магазине.", self.keyboards.admin_keyboard())
-        except Exception as e:
-            log_error(f"❌ Ошибка add_promo: {e}")
-    
-    def start_delete_promo(self, admin_id):
-        promos = self.db.get_active_promos()
-        if not promos:
-            self.send_message(admin_id, "❌ Нет активных промокодов", self.keyboards.admin_keyboard())
+    def create_ticket(self, user_id, text):
+        """Создание тикета"""
+        if len(text) < 10:
+            self.send_message(user_id, "❌ Слишком короткое описание", self.keyboards.back_keyboard())
             return
         
-        message = "➖ УДАЛЕНИЕ ПРОМОКОДА\n\nАктивные промокоды:\n"
-        for promo in promos:
-            message += f"🔑 {promo.code} — {promo.description}\n"
-        message += "\nВведите код для удаления:"
+        ticket_id = asyncio.run(self.db.add_ticket(user_id, "", "", text))
         
-        self.user_states[admin_id] = 'waiting_promo_delete'
-        self.send_message(admin_id, message, self.keyboards.back_keyboard())
+        if user_id in self.user_states:
+            del self.user_states[user_id]
+        
+        self.send_message(user_id, f"✅ Тикет #{ticket_id} создан! Администратор скоро ответит.", 
+                        self.keyboards.tickets_keyboard())
+        
+        # Уведомление админам
+        try:
+            user_info = self.vk_api.users.get(user_ids=user_id)[0]
+            user_name = f"{user_info['first_name']} {user_info['last_name']}"
+        except:
+            user_name = f"id{user_id}"
+        
+        keyboard = VkKeyboard(inline=True)
+        keyboard.add_button('✏️ Ответить', VkKeyboardColor.PRIMARY, 
+                          payload={'command': f'ticket_answer_{ticket_id}'})
+        
+        admin_msg = f"📩 НОВЫЙ ТИКЕТ #{ticket_id}\n\n👤 {user_name}\n📝 {text[:200]}"
+        self.send_admin_message(admin_msg, keyboard)
+    
+    def show_my_tickets(self, user_id):
+        """Мои тикеты"""
+        tickets = asyncio.run(self.db.get_user_tickets_simple(user_id))
+        
+        if not tickets:
+            self.send_message(user_id, "📭 У вас нет обращений", self.keyboards.tickets_keyboard())
+            return
+        
+        message = "📋 МОИ ТИКЕТЫ\n\n"
+        for t in tickets[:10]:
+            status = "🟢" if t[4] == 'open' else "🔴"
+            message += f"{status} #{t[0]}: {t[3][:50]}...\n"
+        
+        self.send_message(user_id, message, self.keyboards.tickets_keyboard())
+    
+    def show_admin_tickets(self, admin_id):
+        """Админ: все открытые тикеты"""
+        if admin_id not in ADMIN_IDS:
+            return
+        
+        tickets = asyncio.run(self.db.get_open_tickets())
+        
+        if not tickets:
+            self.send_message(admin_id, "✅ Нет открытых тикетов", self.keyboards.admin_keyboard())
+            return
+        
+        keyboard = VkKeyboard(inline=True)
+        message = "🎫 ОТКРЫТЫЕ ТИКЕТЫ\n\n"
+        
+        for t in tickets[:5]:
+            message += f"#{t[0]} от id{t[1]}\n{t[4][:100]}\n\n"
+            keyboard.add_button(f'✏️ Ответить #{t[0]}', VkKeyboardColor.PRIMARY,
+                              payload={'command': f'ticket_answer_{t[0]}'})
+            keyboard.add_line()
+        
+        keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY,
+                          payload={'command': 'admin_tickets'})
+        
+        self.send_message(admin_id, message, keyboard)
+    
+    def start_ticket_answer(self, admin_id, ticket_id):
+        """Начало ответа на тикет"""
+        if admin_id not in ADMIN_IDS:
+            return
+        
+        self.user_states[admin_id] = f'ticket_reply_{ticket_id}'
+        self.send_message(admin_id, f"✏️ Введите ответ на тикет #{ticket_id}:", 
+                        self.keyboards.back_keyboard())
+    
+    def reply_to_ticket(self, admin_id, ticket_id, text):
+        """Ответ на тикет"""
+        if admin_id not in ADMIN_IDS:
+            return
+        
+        # Получаем тикет
+        tickets = asyncio.run(self.db.get_open_tickets())
+        ticket = next((t for t in tickets if t[0] == ticket_id), None)
+        
+        if not ticket:
+            self.send_message(admin_id, "❌ Тикет не найден")
+            return
+        
+        user_id = ticket[1]
+        
+        # Отправляем ответ пользователю
+        self.send_message(user_id, f"📩 ОТВЕТ НА ТИКЕТ #{ticket_id}\n\n👑 Администратор:\n{text}")
+        
+        # Закрываем тикет
+        asyncio.run(self.db.answer_ticket(ticket_id))
+        
+        if admin_id in self.user_states:
+            del self.user_states[admin_id]
+        
+        self.send_message(admin_id, f"✅ Ответ отправлен!", self.keyboards.admin_keyboard())
+    
+    # ========== ПРОМОКОДЫ (АДМИН) ==========
+    
+    def check_promo_code(self, user_id, text):
+        """Проверка ввода промокода"""
+        # Проверяем, есть ли такой промокод в активных
+        promos = asyncio.run(self.db.get_active_promos_simple())
+        for promo in promos:
+            code = promo[0] if isinstance(promo, tuple) else promo
+            if code.upper() == text.upper():
+                # Проверяем, не получал ли уже сегодня
+                last = asyncio.run(self.db.get_last_promo(user_id))
+                if last:
+                    last_dt = datetime.fromisoformat(last)
+                    if datetime.now() - last_dt < timedelta(hours=24):
+                        self.send_message(user_id, "⏳ Вы уже получали промокод сегодня")
+                        return True
+                
+                # Выдаем промокод
+                asyncio.run(self.db.add_promo_history(user_id, code))
+                asyncio.run(self.db.update_last_promo(user_id))
+                
+                self.send_message(user_id, f"🎁 Ваш промокод:\n\n🔑 {code}\n\n💡 Активируйте в магазине:\n{SHOP_URL}")
+                return True
+        return False
+    
+    def start_add_promo(self, admin_id):
+        """Начало добавления промокода"""
+        if admin_id not in ADMIN_IDS:
+            return
+        
+        self.user_states[admin_id] = 'waiting_promo_add'
+        self.send_message(admin_id, "➕ Введите новый промокод:", self.keyboards.back_keyboard())
+    
+    def add_promo(self, admin_id, code):
+        """Добавление промокода"""
+        if admin_id not in ADMIN_IDS:
+            return
+        
+        code = code.strip().upper()
+        # Добавляем в JSON (как в ТГ боте)
+        from pathlib import Path
+        import json
+        
+        DATA_DIR = Path("data")
+        DATA_DIR.mkdir(exist_ok=True)
+        DATA_PROMO = DATA_DIR / "promocodes.json"
+        
+        promos = []
+        if DATA_PROMO.exists():
+            with open(DATA_PROMO, 'r') as f:
+                promos = json.load(f)
+        
+        promos.append({"code": code, "date": datetime.now().isoformat()})
+        
+        with open(DATA_PROMO, 'w') as f:
+            json.dump(promos, f, indent=2)
+        
+        if admin_id in self.user_states:
+            del self.user_states[admin_id]
+        
+        self.send_message(admin_id, f"✅ Промокод {code} добавлен!", self.keyboards.admin_keyboard())
+    
+    def show_promo_list(self, admin_id):
+        """Список промокодов"""
+        if admin_id not in ADMIN_IDS:
+            return
+        
+        from pathlib import Path
+        import json
+        
+        DATA_DIR = Path("data")
+        DATA_PROMO = DATA_DIR / "promocodes.json"
+        
+        promos = []
+        if DATA_PROMO.exists():
+            with open(DATA_PROMO, 'r') as f:
+                promos = json.load(f)
+        
+        if not promos:
+            self.send_message(admin_id, "📭 Список промокодов пуст", self.keyboards.admin_keyboard())
+            return
+        
+        message = "📋 СПИСОК ПРОМОКОДОВ\n\n"
+        for p in promos:
+            code = p["code"] if isinstance(p, dict) else p
+            message += f"🎫 {code}\n"
+        
+        self.send_message(admin_id, message, self.keyboards.admin_keyboard())
+    
+    def show_promo_list_for_delete(self, admin_id):
+        """Список промокодов для удаления"""
+        if admin_id not in ADMIN_IDS:
+            return
+        
+        from pathlib import Path
+        import json
+        
+        DATA_DIR = Path("data")
+        DATA_PROMO = DATA_DIR / "promocodes.json"
+        
+        promos = []
+        if DATA_PROMO.exists():
+            with open(DATA_PROMO, 'r') as f:
+                promos = json.load(f)
+        
+        if not promos:
+            self.send_message(admin_id, "📭 Список промокодов пуст", self.keyboards.admin_keyboard())
+            return
+        
+        keyboard = VkKeyboard(inline=True)
+        
+        for p in promos[:10]:
+            code = p["code"] if isinstance(p, dict) else p
+            keyboard.add_button(f'🗑 {code}', VkKeyboardColor.NEGATIVE,
+                              payload={'command': f'confirm_delete_promo_{code}'})
+            keyboard.add_line()
+        
+        keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY,
+                          payload={'command': 'back_to_main'})
+        
+        self.send_message(admin_id, "➖ Выберите промокод для удаления:", keyboard)
     
     def delete_promo(self, admin_id, code):
-        code = code.strip().upper()
-        if self.db.delete_promo(code):
-            del self.user_states[admin_id]
-            self.send_message(admin_id, f"✅ Промокод {code} удален!", self.keyboards.admin_keyboard())
-        else:
-            self.send_message(admin_id, f"❌ Промокод {code} не найден.", self.keyboards.back_keyboard())
+        """Удаление промокода"""
+        if admin_id not in ADMIN_IDS:
+            return
+        
+        from pathlib import Path
+        import json
+        
+        DATA_DIR = Path("data")
+        DATA_PROMO = DATA_DIR / "promocodes.json"
+        
+        promos = []
+        if DATA_PROMO.exists():
+            with open(DATA_PROMO, 'r') as f:
+                promos = json.load(f)
+        
+        new_promos = []
+        for p in promos:
+            p_code = p["code"] if isinstance(p, dict) else p
+            if p_code != code:
+                new_promos.append(p)
+        
+        with open(DATA_PROMO, 'w') as f:
+            json.dump(new_promos, f, indent=2)
+        
+        self.send_message(admin_id, f"✅ Промокод {code} удален!", self.keyboards.admin_keyboard())
     
     # ========== АДМИНСКИЕ ФУНКЦИИ ==========
     
     def show_admin_menu(self, admin_id):
-        keyboard = VkKeyboard(inline=False)
-        keyboard.add_button('📊 Статистика', color=VkKeyboardColor.PRIMARY)
-        keyboard.add_button('📨 Рассылка', color=VkKeyboardColor.POSITIVE)
-        keyboard.add_line()
-        keyboard.add_button('➕ Добавить промо', color=VkKeyboardColor.POSITIVE)
-        keyboard.add_button('➖ Удалить промо', color=VkKeyboardColor.NEGATIVE)
-        keyboard.add_line()
-        keyboard.add_button('🎫 Тикеты админ', color=VkKeyboardColor.SECONDARY)
-        keyboard.add_button('👥 Пользователи', color=VkKeyboardColor.PRIMARY)
-        keyboard.add_line()
-        keyboard.add_button('📜 История промо', color=VkKeyboardColor.SECONDARY)
-        keyboard.add_line()
-        keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY)
-        
-        self.send_message(admin_id, "👑 АДМИН-ПАНЕЛЬ 👑\n\nВыберите действие:", keyboard)
-    
-    def show_stats(self, admin_id):
-        try:
-            session = self.db.get_session()
-            users = session.query(User).count()
-            promos = session.query(PromoCode).filter_by(is_active=True).count()
-            tickets = session.query(Ticket).filter_by(status='open').count()
-            usage_count = session.query(PromoUsage).count()
-            session.close()
-            
-            message = f"📊 СТАТИСТИКА БОТА 📊\n\n"
-            message += f"👥 Пользователей: {users}\n"
-            message += f"🎁 Активных промокодов: {promos}\n"
-            message += f"📈 Запросов промокодов: {usage_count}\n"
-            message += f"🎫 Открытых тикетов: {tickets}"
-            
-            self.send_message(admin_id, message, self.keyboards.admin_keyboard())
-        except Exception as e:
-            log_error(f"❌ Ошибка show_stats: {e}")
-    
-    def start_broadcast(self, admin_id):
-        users = self.db.get_all_users()
-        self.user_states[admin_id] = 'waiting_broadcast'
-        self.send_message(admin_id, f"📨 РАССЫЛКА\n\nВсего подписчиков: {len(users)}\n\nВведите сообщение (или /cancel):", self.keyboards.back_keyboard())
-    
-    def send_broadcast(self, admin_id, message):
-        if message == '/cancel':
-            del self.user_states[admin_id]
-            self.show_admin_menu(admin_id)
+        """Админ-панель"""
+        if admin_id not in ADMIN_IDS:
             return
         
-        self.send_message(admin_id, "✅ Рассылка запущена!")
+        self.send_message(admin_id, "👑 АДМИН-ПАНЕЛЬ\n\nВыберите действие:", 
+                        self.keyboards.admin_keyboard())
+    
+    def show_stats(self, admin_id):
+        """Статистика"""
+        if admin_id not in ADMIN_IDS:
+            return
         
-        def broadcast_thread():
-            users = self.db.get_all_users()
-            sent = 0
-            for user in users:
-                try:
-                    self.send_message(user.vk_id, f"📢 РАССЫЛКА\n\n{message}")
-                    sent += 1
-                except:
-                    pass
-                time.sleep(0.34)
-            self.send_message(admin_id, f"📊 РАССЫЛКА ЗАВЕРШЕНА\n\n✅ Отправлено: {sent}", self.keyboards.admin_keyboard())
+        users = asyncio.run(self.db.count_users())
+        promos = asyncio.run(self.db.count_total_promos())
         
-        threading.Thread(target=broadcast_thread, daemon=True).start()
-        del self.user_states[admin_id]
+        message = f"📊 СТАТИСТИКА\n\n👥 Пользователей: {users}\n🎁 Выдано промокодов: {promos}"
+        self.send_message(admin_id, message, self.keyboards.admin_keyboard())
     
     def show_users_list(self, admin_id):
-        try:
-            users = self.db.get_all_users()
-            message = f"👥 ПОЛЬЗОВАТЕЛИ (всего: {len(users)})\n\nПоследние 10:\n"
-            for user in sorted(users, key=lambda x: x.registered_at, reverse=True)[:10]:
-                message += f"• @id{user.vk_id} ({user.first_name} {user.last_name})\n  📅 {user.registered_at.strftime('%d.%m.%Y')}\n"
-            self.send_message(admin_id, message, self.keyboards.admin_keyboard())
-        except Exception as e:
-            log_error(f"❌ Ошибка show_users_list: {e}")
+        """Список пользователей"""
+        if admin_id not in ADMIN_IDS:
+            return
+        
+        users = asyncio.run(self.db.get_all_user_ids())
+        message = f"👥 ПОЛЬЗОВАТЕЛИ (всего: {len(users)})\n\nID:\n" + "\n".join(str(u) for u in users[:50])
+        self.send_message(admin_id, message, self.keyboards.admin_keyboard())
     
-    # ========== ИНФОРМАЦИОННЫЕ ФУНКЦИИ ==========
+    def start_broadcast(self, admin_id):
+        """Начало рассылки"""
+        if admin_id not in ADMIN_IDS:
+            return
+        
+        users = asyncio.run(self.db.get_all_user_ids())
+        self.user_states[admin_id] = 'waiting_broadcast'
+        self.send_message(admin_id, f"📢 Введите текст рассылки\n(будет отправлено {len(users)} пользователям):", 
+                        self.keyboards.back_keyboard())
     
-    def show_rules(self, user_id):
-        rules_text = "📜 ПРАВИЛА СЕРВЕРА HOSTILE RUST 📜\n\n" + "\n".join(RULES)
-        if len(rules_text) > 4000:
-            for i in range(0, len(rules_text), 4000):
-                self.send_message(user_id, rules_text[i:i+4000], self.keyboards.back_keyboard() if i+4000 >= len(rules_text) else None)
-        else:
-            self.send_message(user_id, rules_text, self.keyboards.back_keyboard())
-    
-    def show_shop(self, user_id):
-        self.send_message(user_id, f"🛒 МАГАЗИН HOSTILE RUST 🛒\n\n{SHOP_URL}\n\nНажмите кнопку ниже!", self.keyboards.shop_keyboard())
-    
-    def show_wipe_info(self, user_id):
-        self.send_message(user_id, f"🔄 ИНФОРМАЦИЯ О ВАЙПЕ 🔄\n\n📅 Расписание: {WIPE_SCHEDULE}", self.keyboards.back_keyboard())
-    
-    # ========== ЗАПУСК ==========
+    def send_broadcast(self, admin_id, text):
+        """Отправка рассылки"""
+        if admin_id not in ADMIN_IDS:
+            return
+        
+        users = asyncio.run(self.db.get_all_user_ids())
+        
+        def broadcast():
+            sent = 0
+            for uid in users:
+                try:
+                    self.send_message(uid, f"📢 РАССЫЛКА\n\n{text}")
+                    sent += 1
+                    time.sleep(0.34)  # Лимит VK
+                except:
+                    pass
+            
+            self.send_message(admin_id, f"✅ Рассылка завершена!\nОтправлено: {sent}", 
+                            self.keyboards.admin_keyboard())
+        
+        threading.Thread(target=broadcast, daemon=True).start()
+        
+        if admin_id in self.user_states:
+            del self.user_states[admin_id]
+        
+        self.send_message(admin_id, "⏳ Рассылка запущена...")
     
     def run(self):
-        log_error("\n" + "="*50)
-        log_error("✅ БОТ ЗАПУЩЕН! Автоматически регистрирует всех кто пишет")
-        log_error("="*50 + "\n")
+        """Запуск бота"""
+        # Инициализация БД
+        asyncio.run(self.init_db())
+        
+        log.info("✅ БОТ ЗАПУЩЕН И ГОТОВ К РАБОТЕ!")
         
         while True:
             try:
@@ -827,18 +630,17 @@ class HostileRustBot:
                     if event.type == VkEventType.MESSAGE_NEW and event.to_me:
                         payload = None
                         try:
-                            if hasattr(event, 'payload'):
+                            if hasattr(event, 'payload') and event.payload:
                                 payload = event.payload
                         except:
                             pass
+                        
                         self.handle_message(event.user_id, event.text, payload)
+            
             except Exception as e:
-                log_error(f"❌ Ошибка: {e}")
+                log.error(f"❌ Ошибка: {e}")
                 time.sleep(5)
 
 if __name__ == '__main__':
-    try:
-        bot = HostileRustBot()
-        bot.run()
-    except Exception as e:
-        log_error(f"❌ ФАТАЛЬНАЯ ОШИБКА: {e}")
+    bot = HostileRustVKBot()
+    bot.run()
