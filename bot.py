@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from config import *
-from database import Database, User, PromoCode, PromoUsage, Ticket
+from database import Database, User, PromoCode, PromoUsage, Ticket, TicketMessage
 from keyboards import Keyboards
 
 # Настройка логирования
@@ -200,7 +200,6 @@ class HostileRustVKBot:
     
     def show_promocodes(self, user_id):
         """Показ доступных промокодов"""
-        # Загружаем промокоды из JSON
         DATA_DIR = Path("data")
         DATA_PROMO = DATA_DIR / "promocodes.json"
         
@@ -213,11 +212,9 @@ class HostileRustVKBot:
             self.send_message(user_id, "😔 Нет активных промокодов", self.keyboards.back_keyboard())
             return
         
-        # Выбираем случайный промокод
         promo = random.choice(promos)
         code = promo["code"] if isinstance(promo, dict) else promo
         
-        # Сохраняем в историю
         self.db.record_promo_usage(user_id, code)
         
         message = f"🎁 Ваш промокод:\n\n🔑 {code}\n\n💡 Активируйте в магазине:\n{SHOP_URL}"
@@ -274,10 +271,9 @@ class HostileRustVKBot:
         self.send_message(user_id, message, self.keyboards.back_keyboard())
     
     def show_wipe_info(self, user_id):
-        """Информация о вайпе с учетом расписания"""
+        """Информация о вайпе"""
         now = datetime.now()
         
-        # Находим следующий четверг
         days_until_thursday = (3 - now.weekday()) % 7
         if days_until_thursday == 0:
             current_hour = now.hour
@@ -289,14 +285,11 @@ class HostileRustVKBot:
                 days_until_thursday = 7
         
         next_wipe = now + timedelta(days=days_until_thursday)
-        
-        # Определяем время вайпа
         is_first_thursday = next_wipe.day <= 7
         wipe_hour = 22 if is_first_thursday else 12
         
         next_wipe = next_wipe.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
         
-        # Вычисляем оставшееся время
         delta = next_wipe - now
         days = delta.days
         hours = delta.seconds // 3600
@@ -321,23 +314,35 @@ class HostileRustVKBot:
     
     def show_tickets_menu(self, user_id):
         """Меню тикетов"""
-        tickets = self.db.get_user_tickets(user_id)
-        open_tickets = [t for t in tickets if t.status == 'open']
-        message = f"🎫 ПОДДЕРЖКА\n\n📊 Всего обращений: {len(tickets)}\n🟢 Открытых: {len(open_tickets)}\n\nВыберите действие:"
+        session = self.db.get_session()
+        try:
+            user = session.query(User).filter_by(vk_id=user_id).first()
+            if user:
+                tickets = session.query(Ticket).filter_by(user_id=user.id).all()
+                open_tickets = [t for t in tickets if t.status == 'open']
+                message = f"🎫 ПОДДЕРЖКА\n\n📊 Всего обращений: {len(tickets)}\n🟢 Открытых: {len(open_tickets)}\n\nВыберите действие:"
+            else:
+                message = f"🎫 ПОДДЕРЖКА\n\n📊 Всего обращений: 0\n\nВыберите действие:"
+        finally:
+            session.close()
+        
         self.send_message(user_id, message, self.keyboards.tickets_keyboard())
     
     def start_ticket_creation(self, user_id):
         """Начало создания тикета"""
-        # Проверка кулдауна
-        tickets = self.db.get_user_tickets(user_id)
-        open_tickets = [t for t in tickets if t.status == 'open']
-        
-        if open_tickets:
-            last_ticket = open_tickets[-1]
-            if (datetime.now() - last_ticket.created_at).total_seconds() < TICKET_COOLDOWN_MINUTES * 60:
-                self.send_message(user_id, f"⏳ Тикет можно создавать раз в {TICKET_COOLDOWN_MINUTES} минут", 
-                                self.keyboards.back_keyboard())
-                return
+        session = self.db.get_session()
+        try:
+            user = session.query(User).filter_by(vk_id=user_id).first()
+            if user:
+                tickets = session.query(Ticket).filter_by(user_id=user.id, status='open').all()
+                if tickets:
+                    last_ticket = tickets[-1]
+                    if (datetime.now() - last_ticket.created_at).total_seconds() < TICKET_COOLDOWN_MINUTES * 60:
+                        self.send_message(user_id, f"⏳ Тикет можно создавать раз в {TICKET_COOLDOWN_MINUTES} минут", 
+                                        self.keyboards.back_keyboard())
+                        return
+        finally:
+            session.close()
         
         self.user_states[user_id] = 'waiting_ticket'
         self.send_message(user_id, "📝 Опишите ваш вопрос подробно:", self.keyboards.back_keyboard())
@@ -356,7 +361,6 @@ class HostileRustVKBot:
         self.send_message(user_id, f"✅ Тикет #{ticket_id} создан! Администратор скоро ответит.", 
                         self.keyboards.tickets_keyboard())
         
-        # Уведомление админам
         try:
             user_info = self.vk_api.users.get(user_ids=user_id)[0]
             user_name = f"{user_info['first_name']} {user_info['last_name']}"
@@ -372,44 +376,57 @@ class HostileRustVKBot:
     
     def show_my_tickets(self, user_id):
         """Мои тикеты"""
-        tickets = self.db.get_user_tickets(user_id)
-        
-        if not tickets:
-            self.send_message(user_id, "📭 У вас нет обращений", self.keyboards.tickets_keyboard())
-            return
-        
-        message = "📋 МОИ ТИКЕТЫ\n\n"
-        for t in tickets[:10]:
-            status = "🟢" if t.status == 'open' else "🔴"
-            message += f"{status} #{t.id}: {t.title[:50]}...\n"
-        
-        self.send_message(user_id, message, self.keyboards.tickets_keyboard())
+        session = self.db.get_session()
+        try:
+            user = session.query(User).filter_by(vk_id=user_id).first()
+            if not user:
+                self.send_message(user_id, "📭 У вас нет обращений", self.keyboards.tickets_keyboard())
+                return
+            
+            tickets = session.query(Ticket).filter_by(user_id=user.id).order_by(Ticket.created_at.desc()).limit(10).all()
+            
+            if not tickets:
+                self.send_message(user_id, "📭 У вас нет обращений", self.keyboards.tickets_keyboard())
+                return
+            
+            message = "📋 МОИ ТИКЕТЫ\n\n"
+            for t in tickets:
+                status = "🟢" if t.status == 'open' else "🔴"
+                message += f"{status} #{t.id}: {t.title[:50]}...\n"
+            
+            self.send_message(user_id, message, self.keyboards.tickets_keyboard())
+        finally:
+            session.close()
     
     def show_admin_tickets(self, admin_id):
         """Админ: все открытые тикеты"""
         if admin_id not in ADMIN_IDS:
             return
         
-        tickets = self.db.get_open_tickets()
-        
-        if not tickets:
-            self.send_message(admin_id, "✅ Нет открытых тикетов", self.keyboards.admin_keyboard())
-            return
-        
-        keyboard = VkKeyboard(inline=True)
-        message = "🎫 ОТКРЫТЫЕ ТИКЕТЫ\n\n"
-        
-        for t in tickets[:5]:
-            user_name = f"{t.user.first_name} {t.user.last_name}" if t.user else f"id{t.user_id}"
-            message += f"#{t.id} от {user_name}\n{t.title[:100]}\n\n"
-            keyboard.add_button(f'✏️ Ответить #{t.id}', VkKeyboardColor.PRIMARY,
-                              payload={'command': f'ticket_answer_{t.id}'})
-            keyboard.add_line()
-        
-        keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY,
-                          payload={'command': 'back_to_main'})
-        
-        self.send_message(admin_id, message, keyboard)
+        session = self.db.get_session()
+        try:
+            tickets = session.query(Ticket).filter_by(status='open').all()
+            
+            if not tickets:
+                self.send_message(admin_id, "✅ Нет открытых тикетов", self.keyboards.admin_keyboard())
+                return
+            
+            keyboard = VkKeyboard(inline=True)
+            message = "🎫 ОТКРЫТЫЕ ТИКЕТЫ\n\n"
+            
+            for t in tickets[:5]:
+                user_name = f"{t.user.first_name} {t.user.last_name}" if t.user else f"id{t.user_id}"
+                message += f"#{t.id} от {user_name}\n{t.title[:100]}\n\n"
+                keyboard.add_button(f'✏️ Ответить #{t.id}', VkKeyboardColor.PRIMARY,
+                                  payload={'command': f'ticket_answer_{t.id}'})
+                keyboard.add_line()
+            
+            keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY,
+                              payload={'command': 'back_to_main'})
+            
+            self.send_message(admin_id, message, keyboard)
+        finally:
+            session.close()
     
     def start_ticket_answer(self, admin_id, ticket_id):
         """Начало ответа на тикет"""
@@ -425,30 +442,39 @@ class HostileRustVKBot:
         if admin_id not in ADMIN_IDS:
             return
         
-        ticket = self.db.get_ticket(ticket_id)
+        session = self.db.get_session()
+        try:
+            ticket = session.query(Ticket).filter_by(id=ticket_id).first()
+            
+            if not ticket:
+                self.send_message(admin_id, "❌ Тикет не найден")
+                return
+            
+            user_id = ticket.user.vk_id
+            
+            msg = TicketMessage(
+                ticket_id=ticket_id,
+                user_id=admin_id,
+                message=text,
+                is_admin=True
+            )
+            session.add(msg)
+            session.commit()
+            
+        finally:
+            session.close()
         
-        if not ticket:
-            self.send_message(admin_id, "❌ Тикет не найден")
-            return
-        
-        user_id = ticket.user.vk_id
-        
-        # Отправляем ответ пользователю
         self.send_message(user_id, f"📩 ОТВЕТ НА ТИКЕТ #{ticket_id}\n\n👑 Администратор:\n{text}")
-        
-        # Добавляем сообщение в тикет
-        self.db.add_ticket_message(ticket_id, admin_id, text, is_admin=True)
         
         if admin_id in self.user_states:
             del self.user_states[admin_id]
         
         self.send_message(admin_id, f"✅ Ответ отправлен!", self.keyboards.admin_keyboard())
     
-    # ========== ПРОМОКОДЫ (АДМИН) ==========
+    # ========== ПРОМОКОДЫ ==========
     
     def check_promo_code(self, user_id, text):
         """Проверка ввода промокода"""
-        # Загружаем промокоды из JSON
         DATA_DIR = Path("data")
         DATA_PROMO = DATA_DIR / "promocodes.json"
         
@@ -461,7 +487,6 @@ class HostileRustVKBot:
         for promo in promos:
             code = promo["code"] if isinstance(promo, dict) else promo
             if code.upper() == text.upper():
-                # Проверяем, не использовал ли уже
                 session = self.db.get_session()
                 try:
                     user = session.query(User).filter_by(vk_id=user_id).first()
@@ -477,7 +502,6 @@ class HostileRustVKBot:
                 finally:
                     session.close()
                 
-                # Записываем использование
                 self.db.record_promo_usage(user_id, code)
                 
                 self.send_message(user_id, f"🎁 Промокод активирован!\n\n🔑 {code}\n\n💡 Активируйте в магазине:\n{SHOP_URL}")
@@ -513,7 +537,6 @@ class HostileRustVKBot:
         with open(DATA_PROMO, 'w', encoding='utf-8') as f:
             json.dump(promos, f, indent=2, ensure_ascii=False)
         
-        # Также добавляем в БД
         self.db.add_promo(code, "Промокод")
         
         if admin_id in self.user_states:
