@@ -105,6 +105,10 @@ class HostileRustVKBot:
                     ticket_id = int(command.replace('ticket_answer_', ''))
                     self.start_ticket_answer(user_id, ticket_id)
                     return
+                elif command.startswith('admin_close_'):
+                    ticket_id = int(command.replace('admin_close_', ''))
+                    self.close_ticket_admin(user_id, ticket_id)
+                    return
                 elif command == 'admin_tickets':
                     self.show_admin_tickets(user_id)
                     return
@@ -180,6 +184,8 @@ class HostileRustVKBot:
                 self.show_admin_tickets(user_id)
             elif text_lower in ['📢 рассылка']:
                 self.start_broadcast(user_id)
+            elif text_lower in ['❌ закрыть тикет', 'закрыть тикет']:
+                self.show_open_tickets_for_close(user_id)
         
         # Проверка на ввод промокода
         elif self.check_promo_code(user_id, text):
@@ -370,6 +376,8 @@ class HostileRustVKBot:
         keyboard = VkKeyboard(inline=True)
         keyboard.add_button('✏️ Ответить', VkKeyboardColor.PRIMARY, 
                           payload={'command': f'ticket_answer_{ticket_id}'})
+        keyboard.add_button('❌ Закрыть', VkKeyboardColor.NEGATIVE,
+                          payload={'command': f'admin_close_{ticket_id}'})
         
         admin_msg = f"📩 НОВЫЙ ТИКЕТ #{ticket_id}\n\n👤 {user_name}\n📝 {text[:200]}"
         self.send_admin_message(admin_msg, keyboard)
@@ -405,26 +413,62 @@ class HostileRustVKBot:
         
         session = self.db.get_session()
         try:
-            tickets = session.query(Ticket).filter_by(status='open').all()
+            tickets = session.query(Ticket).filter_by(status='open').order_by(Ticket.created_at.desc()).all()
+            
+            if not tickets:
+                self.send_message(admin_id, "✅ Нет открытых тикетов", self.keyboards.admin_keyboard())
+                return
+            
+            self.send_message(admin_id, f"🎫 ОТКРЫТЫЕ ТИКЕТЫ (всего: {len(tickets)})\n")
+            
+            for t in tickets[:10]:
+                user_name = f"{t.user.first_name} {t.user.last_name}" if t.user else f"id{t.user_id}"
+                
+                message = f"🟢 ТИКЕТ #{t.id}\n"
+                message += f"👤 От: {user_name}\n"
+                message += f"📅 {t.created_at.strftime('%d.%m.%Y %H:%M')}\n"
+                message += f"📝 {t.title}\n"
+                
+                keyboard = VkKeyboard(inline=True)
+                keyboard.add_button('✏️ Ответить', VkKeyboardColor.PRIMARY,
+                                  payload={'command': f'ticket_answer_{t.id}'})
+                keyboard.add_button('❌ Закрыть', VkKeyboardColor.NEGATIVE,
+                                  payload={'command': f'admin_close_{t.id}'})
+                
+                self.send_message(admin_id, message, keyboard)
+            
+            if len(tickets) > 10:
+                self.send_message(admin_id, f"... и еще {len(tickets) - 10} тикетов")
+                
+        finally:
+            session.close()
+    
+    def show_open_tickets_for_close(self, admin_id):
+        """Показ тикетов для закрытия"""
+        if admin_id not in ADMIN_IDS:
+            return
+        
+        session = self.db.get_session()
+        try:
+            tickets = session.query(Ticket).filter_by(status='open').order_by(Ticket.created_at.desc()).limit(10).all()
             
             if not tickets:
                 self.send_message(admin_id, "✅ Нет открытых тикетов", self.keyboards.admin_keyboard())
                 return
             
             keyboard = VkKeyboard(inline=True)
-            message = "🎫 ОТКРЫТЫЕ ТИКЕТЫ\n\n"
             
-            for t in tickets[:5]:
+            for t in tickets:
                 user_name = f"{t.user.first_name} {t.user.last_name}" if t.user else f"id{t.user_id}"
-                message += f"#{t.id} от {user_name}\n{t.title[:100]}\n\n"
-                keyboard.add_button(f'✏️ Ответить #{t.id}', VkKeyboardColor.PRIMARY,
-                                  payload={'command': f'ticket_answer_{t.id}'})
+                keyboard.add_button(f'❌ Закрыть #{t.id} ({user_name[:15]}...)', 
+                                  VkKeyboardColor.NEGATIVE,
+                                  payload={'command': f'admin_close_{t.id}'})
                 keyboard.add_line()
             
             keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY,
                               payload={'command': 'back_to_main'})
             
-            self.send_message(admin_id, message, keyboard)
+            self.send_message(admin_id, "📋 Выберите тикет для закрытия:", keyboard)
         finally:
             session.close()
     
@@ -450,6 +494,10 @@ class HostileRustVKBot:
                 self.send_message(admin_id, "❌ Тикет не найден")
                 return
             
+            if ticket.status == 'closed':
+                self.send_message(admin_id, "❌ Тикет уже закрыт")
+                return
+            
             user_id = ticket.user.vk_id
             
             msg = TicketMessage(
@@ -470,6 +518,35 @@ class HostileRustVKBot:
             del self.user_states[admin_id]
         
         self.send_message(admin_id, f"✅ Ответ отправлен!", self.keyboards.admin_keyboard())
+    
+    def close_ticket_admin(self, admin_id, ticket_id):
+        """Закрытие тикета администратором"""
+        if admin_id not in ADMIN_IDS:
+            return
+        
+        session = self.db.get_session()
+        try:
+            ticket = session.query(Ticket).filter_by(id=ticket_id).first()
+            
+            if not ticket:
+                self.send_message(admin_id, "❌ Тикет не найден")
+                return
+            
+            if ticket.status == 'closed':
+                self.send_message(admin_id, "❌ Тикет уже закрыт")
+                return
+            
+            user_id = ticket.user.vk_id
+            
+            ticket.status = 'closed'
+            ticket.closed_at = datetime.now()
+            session.commit()
+            
+        finally:
+            session.close()
+        
+        self.send_message(user_id, f"🔒 Тикет #{ticket_id} закрыт администратором\n\nЕсли остались вопросы, создайте новый тикет.")
+        self.send_message(admin_id, f"✅ Тикет #{ticket_id} закрыт!", self.keyboards.admin_keyboard())
     
     # ========== ПРОМОКОДЫ ==========
     
@@ -641,7 +718,8 @@ class HostileRustVKBot:
         try:
             users_count = session.query(User).count()
             promos_count = session.query(PromoCode).filter_by(is_active=True).count()
-            tickets_count = session.query(Ticket).filter_by(status='open').count()
+            tickets_open = session.query(Ticket).filter_by(status='open').count()
+            tickets_closed = session.query(Ticket).filter_by(status='closed').count()
             usage_count = session.query(PromoUsage).count()
         finally:
             session.close()
@@ -650,7 +728,7 @@ class HostileRustVKBot:
         message += f"👥 Пользователей: {users_count}\n"
         message += f"🎁 Активных промокодов: {promos_count}\n"
         message += f"📈 Использований промокодов: {usage_count}\n"
-        message += f"🎫 Открытых тикетов: {tickets_count}"
+        message += f"🎫 Тикетов (открыто/закрыто): {tickets_open}/{tickets_closed}"
         
         self.send_message(admin_id, message, self.keyboards.admin_keyboard())
     
