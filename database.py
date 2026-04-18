@@ -5,6 +5,7 @@ from datetime import datetime
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 
 Base = declarative_base()
 
@@ -67,14 +68,49 @@ class Database:
             
             # Путь к БД внутри папки data
             db_path = data_dir / 'hostile_rust.db'
-            
-            # Проверяем, есть ли старая БД в корне и перемещаем
             old_db = Path("hostile_rust.db")
-            if old_db.exists() and not db_path.exists():
-                shutil.copy2(old_db, db_path)
-                print(f"✅ База данных перемещена из {old_db} в {db_path}")
-            elif old_db.exists() and db_path.exists():
-                print(f"⚠️ Найдены две базы данных. Используется {db_path}")
+            
+            print("="*50)
+            print("🔍 ПРОВЕРКА БАЗЫ ДАННЫХ")
+            print("="*50)
+            
+            # Проверяем и переносим старую БД из корня
+            if old_db.exists():
+                print(f"📁 Найден файл в корне: {old_db}")
+                if self._is_valid_db(old_db):
+                    if not db_path.exists():
+                        shutil.copy2(old_db, db_path)
+                        print(f"✅ База данных перемещена из {old_db} в {db_path}")
+                        # Переименовываем старый файл чтобы не мешал
+                        old_db.rename("hostile_rust.db.old")
+                        print(f"📦 Старый файл переименован в hostile_rust.db.old")
+                    else:
+                        print(f"⚠️ База в data уже существует, старая в корне будет игнорироваться")
+                else:
+                    print(f"⚠️ Старый файл {old_db} повреждён или не является базой данных")
+                    # Делаем бэкап повреждённого файла
+                    backup_name = f"hostile_rust.db.broken.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    old_db.rename(backup_name)
+                    print(f"📦 Повреждённый файл сохранён как {backup_name}")
+            
+            # Проверяем валидность БД в data
+            if db_path.exists():
+                print(f"📁 Проверка базы в data: {db_path}")
+                if self._is_valid_db(db_path):
+                    print(f"✅ База данных валидна")
+                    # Показываем размер файла
+                    size = db_path.stat().st_size
+                    print(f"📏 Размер файла: {size:,} байт")
+                else:
+                    print(f"❌ База данных {db_path} повреждена!")
+                    # Делаем бэкап повреждённого файла
+                    backup_path = data_dir / f"hostile_rust.db.bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    shutil.copy2(db_path, backup_path)
+                    print(f"📦 Бэкап сохранён в {backup_path}")
+                    db_path.unlink()  # Удаляем повреждённый файл
+                    print(f"🔄 Повреждённый файл удалён, будет создана новая БД")
+            else:
+                print(f"📁 База данных в data не найдена, будет создана новая")
             
             db_url = f'sqlite:///{db_path.absolute()}'
             print(f"📁 Путь к базе данных: {db_path.absolute()}")
@@ -92,11 +128,34 @@ class Database:
         try:
             users_count = session.query(User).count()
             promos_count = session.query(PromoCode).count()
-            print(f"✅ База данных загружена: {users_count} пользователей, {promos_count} промокодов")
+            tickets_count = session.query(Ticket).count()
+            print("="*50)
+            print(f"✅ База данных загружена успешно!")
+            print(f"👥 Пользователей: {users_count}")
+            print(f"🎁 Промокодов: {promos_count}")
+            print(f"🎫 Тикетов: {tickets_count}")
+            print("="*50)
         except Exception as e:
-            print(f"⚠️ Ошибка проверки БД: {e}")
+            print(f"❌ Ошибка при проверке данных: {e}")
         finally:
             session.close()
+    
+    def _is_valid_db(self, db_path):
+        """Проверяет, является ли файл валидной базой данных SQLite"""
+        try:
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+            # Пытаемся получить список таблиц
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = cursor.fetchall()
+            conn.close()
+            return True
+        except sqlite3.DatabaseError as e:
+            print(f"   ⚠️ Ошибка SQLite: {e}")
+            return False
+        except Exception as e:
+            print(f"   ⚠️ Неизвестная ошибка: {e}")
+            return False
     
     def get_session(self):
         return self.Session()
