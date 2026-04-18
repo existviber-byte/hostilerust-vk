@@ -653,30 +653,30 @@ class HostileRustVKBot:
         self.send_message(admin_id, "⏳ Рассылка запущена...")
     
     def run(self):
-    """Запуск бота"""
-    log.info("✅ БОТ ЗАПУЩЕН И ГОТОВ К РАБОТЕ!")
-    
-    while True:
-        try:
-            for event in self.longpoll.listen():
-                if event.type == VkEventType.MESSAGE_NEW and event.to_me:
-                    payload = None
-                    try:
-                        if hasattr(event, 'payload') and event.payload:
-                            payload = event.payload
-                    except:
-                        pass
-                    
-                    # Запускаем обработку в отдельном потоке
-                    threading.Thread(
-                        target=self.handle_message,
-                        args=(event.user_id, event.text, payload),
-                        daemon=True
-                    ).start()
+        """Запуск бота"""
+        log.info("✅ БОТ ЗАПУЩЕН И ГОТОВ К РАБОТЕ!")
         
-        except Exception as e:
-            log.error(f"❌ Ошибка в главном цикле: {e}")
-            time.sleep(5)
+        while True:
+            try:
+                for event in self.longpoll.listen():
+                    if event.type == VkEventType.MESSAGE_NEW and event.to_me:
+                        payload = None
+                        try:
+                            if hasattr(event, 'payload') and event.payload:
+                                payload = event.payload
+                        except:
+                            pass
+                        
+                        # Запускаем обработку в отдельном потоке
+                        threading.Thread(
+                            target=self.handle_message,
+                            args=(event.user_id, event.text, payload),
+                            daemon=True
+                        ).start()
+            
+            except Exception as e:
+                log.error(f"❌ Ошибка в главном цикле: {e}")
+                time.sleep(5)
 
 if __name__ == '__main__':
     bot = HostileRustVKBot()
