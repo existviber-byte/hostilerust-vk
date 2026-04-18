@@ -3,7 +3,6 @@ from vk_api.longpoll import VkLongPoll, VkEventType
 from vk_api.utils import get_random_id
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 from datetime import datetime, timedelta
-import asyncio
 import json
 import logging
 import random
@@ -12,7 +11,7 @@ import time
 from pathlib import Path
 
 from config import *
-from database import Database
+from database import Database, User, PromoCode, PromoUsage, Ticket
 from keyboards import Keyboards
 
 # Настройка логирования
@@ -76,16 +75,18 @@ class HostileRustVKBot:
         for admin_id in ADMIN_IDS:
             self.send_message(admin_id, message, keyboard)
     
-    async def init_db(self):
-        """Инициализация БД"""
-        await self.db.init()
-    
     def handle_message(self, user_id, text, payload=None):
         """Обработка сообщений"""
-        log.info(f"📨 Сообщение от {user_id}: {text[:50]}")
+        log.info(f"📨 Сообщение от {user_id}: {text[:50] if text else ''}")
         
         # Регистрируем пользователя
-        asyncio.run(self.db.add_user(user_id, "", ""))
+        try:
+            user_info = self.vk_api.users.get(user_ids=user_id)[0]
+            first_name = user_info.get('first_name', '')
+            last_name = user_info.get('last_name', '')
+            self.db.add_user(user_id, first_name, last_name)
+        except Exception as e:
+            log.error(f"❌ Ошибка регистрации пользователя: {e}")
         
         # Обработка payload (inline кнопки)
         if payload:
@@ -133,6 +134,9 @@ class HostileRustVKBot:
                 return
         
         # Обработка текстовых команд
+        if not text:
+            return
+        
         text_lower = text.lower().strip()
         
         if text_lower in ['начать', 'start', 'меню', 'привет']:
@@ -196,7 +200,14 @@ class HostileRustVKBot:
     
     def show_promocodes(self, user_id):
         """Показ доступных промокодов"""
-        promos = asyncio.run(self.db.get_active_promos_simple())
+        # Загружаем промокоды из JSON
+        DATA_DIR = Path("data")
+        DATA_PROMO = DATA_DIR / "promocodes.json"
+        
+        promos = []
+        if DATA_PROMO.exists():
+            with open(DATA_PROMO, 'r', encoding='utf-8') as f:
+                promos = json.load(f)
         
         if not promos:
             self.send_message(user_id, "😔 Нет активных промокодов", self.keyboards.back_keyboard())
@@ -204,11 +215,10 @@ class HostileRustVKBot:
         
         # Выбираем случайный промокод
         promo = random.choice(promos)
-        code = promo[0] if isinstance(promo, tuple) else promo
+        code = promo["code"] if isinstance(promo, dict) else promo
         
         # Сохраняем в историю
-        asyncio.run(self.db.add_promo_history(user_id, code))
-        asyncio.run(self.db.update_last_promo(user_id))
+        self.db.record_promo_usage(user_id, code)
         
         message = f"🎁 Ваш промокод:\n\n🔑 {code}\n\n💡 Активируйте в магазине:\n{SHOP_URL}"
         self.send_message(user_id, message, self.keyboards.back_keyboard())
@@ -245,7 +255,6 @@ class HostileRustVKBot:
     
     def show_rules(self, user_id):
         """Правила сервера"""
-        # Отправляем правила по частям (ограничение VK 4096 символов)
         rules_text = "📜 ПРАВИЛА HOSTILE RUST\n\n"
         
         for part in RULES:
@@ -266,14 +275,11 @@ class HostileRustVKBot:
     
     def show_wipe_info(self, user_id):
         """Информация о вайпе с учетом расписания"""
-        from datetime import datetime, timedelta
-        
         now = datetime.now()
         
         # Находим следующий четверг
         days_until_thursday = (3 - now.weekday()) % 7
         if days_until_thursday == 0:
-            # Сегодня четверг, проверяем время
             current_hour = now.hour
             is_first_thursday = now.day <= 7
             
@@ -315,17 +321,20 @@ class HostileRustVKBot:
     
     def show_tickets_menu(self, user_id):
         """Меню тикетов"""
-        tickets = asyncio.run(self.db.get_user_tickets_count(user_id))
-        message = f"🎫 ПОДДЕРЖКА\n\n📊 Всего обращений: {tickets}\n\nВыберите действие:"
+        tickets = self.db.get_user_tickets(user_id)
+        open_tickets = [t for t in tickets if t.status == 'open']
+        message = f"🎫 ПОДДЕРЖКА\n\n📊 Всего обращений: {len(tickets)}\n🟢 Открытых: {len(open_tickets)}\n\nВыберите действие:"
         self.send_message(user_id, message, self.keyboards.tickets_keyboard())
     
     def start_ticket_creation(self, user_id):
         """Начало создания тикета"""
         # Проверка кулдауна
-        last_ticket = asyncio.run(self.db.get_last_ticket(user_id))
-        if last_ticket:
-            last_time = datetime.fromisoformat(last_ticket)
-            if datetime.now() - last_time < timedelta(minutes=TICKET_COOLDOWN_MINUTES):
+        tickets = self.db.get_user_tickets(user_id)
+        open_tickets = [t for t in tickets if t.status == 'open']
+        
+        if open_tickets:
+            last_ticket = open_tickets[-1]
+            if (datetime.now() - last_ticket.created_at).total_seconds() < TICKET_COOLDOWN_MINUTES * 60:
                 self.send_message(user_id, f"⏳ Тикет можно создавать раз в {TICKET_COOLDOWN_MINUTES} минут", 
                                 self.keyboards.back_keyboard())
                 return
@@ -339,7 +348,7 @@ class HostileRustVKBot:
             self.send_message(user_id, "❌ Слишком короткое описание", self.keyboards.back_keyboard())
             return
         
-        ticket_id = asyncio.run(self.db.add_ticket(user_id, "", "", text))
+        ticket_id = self.db.create_ticket(user_id, text)
         
         if user_id in self.user_states:
             del self.user_states[user_id]
@@ -363,7 +372,7 @@ class HostileRustVKBot:
     
     def show_my_tickets(self, user_id):
         """Мои тикеты"""
-        tickets = asyncio.run(self.db.get_user_tickets_simple(user_id))
+        tickets = self.db.get_user_tickets(user_id)
         
         if not tickets:
             self.send_message(user_id, "📭 У вас нет обращений", self.keyboards.tickets_keyboard())
@@ -371,8 +380,8 @@ class HostileRustVKBot:
         
         message = "📋 МОИ ТИКЕТЫ\n\n"
         for t in tickets[:10]:
-            status = "🟢" if t[4] == 'open' else "🔴"
-            message += f"{status} #{t[0]}: {t[3][:50]}...\n"
+            status = "🟢" if t.status == 'open' else "🔴"
+            message += f"{status} #{t.id}: {t.title[:50]}...\n"
         
         self.send_message(user_id, message, self.keyboards.tickets_keyboard())
     
@@ -381,7 +390,7 @@ class HostileRustVKBot:
         if admin_id not in ADMIN_IDS:
             return
         
-        tickets = asyncio.run(self.db.get_open_tickets())
+        tickets = self.db.get_open_tickets()
         
         if not tickets:
             self.send_message(admin_id, "✅ Нет открытых тикетов", self.keyboards.admin_keyboard())
@@ -391,13 +400,14 @@ class HostileRustVKBot:
         message = "🎫 ОТКРЫТЫЕ ТИКЕТЫ\n\n"
         
         for t in tickets[:5]:
-            message += f"#{t[0]} от id{t[1]}\n{t[4][:100]}\n\n"
-            keyboard.add_button(f'✏️ Ответить #{t[0]}', VkKeyboardColor.PRIMARY,
-                              payload={'command': f'ticket_answer_{t[0]}'})
+            user_name = f"{t.user.first_name} {t.user.last_name}" if t.user else f"id{t.user_id}"
+            message += f"#{t.id} от {user_name}\n{t.title[:100]}\n\n"
+            keyboard.add_button(f'✏️ Ответить #{t.id}', VkKeyboardColor.PRIMARY,
+                              payload={'command': f'ticket_answer_{t.id}'})
             keyboard.add_line()
         
         keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY,
-                          payload={'command': 'admin_tickets'})
+                          payload={'command': 'back_to_main'})
         
         self.send_message(admin_id, message, keyboard)
     
@@ -415,21 +425,19 @@ class HostileRustVKBot:
         if admin_id not in ADMIN_IDS:
             return
         
-        # Получаем тикет
-        tickets = asyncio.run(self.db.get_open_tickets())
-        ticket = next((t for t in tickets if t[0] == ticket_id), None)
+        ticket = self.db.get_ticket(ticket_id)
         
         if not ticket:
             self.send_message(admin_id, "❌ Тикет не найден")
             return
         
-        user_id = ticket[1]
+        user_id = ticket.user.vk_id
         
         # Отправляем ответ пользователю
         self.send_message(user_id, f"📩 ОТВЕТ НА ТИКЕТ #{ticket_id}\n\n👑 Администратор:\n{text}")
         
-        # Закрываем тикет
-        asyncio.run(self.db.answer_ticket(ticket_id))
+        # Добавляем сообщение в тикет
+        self.db.add_ticket_message(ticket_id, admin_id, text, is_admin=True)
         
         if admin_id in self.user_states:
             del self.user_states[admin_id]
@@ -440,24 +448,39 @@ class HostileRustVKBot:
     
     def check_promo_code(self, user_id, text):
         """Проверка ввода промокода"""
-        # Проверяем, есть ли такой промокод в активных
-        promos = asyncio.run(self.db.get_active_promos_simple())
+        # Загружаем промокоды из JSON
+        DATA_DIR = Path("data")
+        DATA_PROMO = DATA_DIR / "promocodes.json"
+        
+        if not DATA_PROMO.exists():
+            return False
+        
+        with open(DATA_PROMO, 'r', encoding='utf-8') as f:
+            promos = json.load(f)
+        
         for promo in promos:
-            code = promo[0] if isinstance(promo, tuple) else promo
+            code = promo["code"] if isinstance(promo, dict) else promo
             if code.upper() == text.upper():
-                # Проверяем, не получал ли уже сегодня
-                last = asyncio.run(self.db.get_last_promo(user_id))
-                if last:
-                    last_dt = datetime.fromisoformat(last)
-                    if datetime.now() - last_dt < timedelta(hours=24):
-                        self.send_message(user_id, "⏳ Вы уже получали промокод сегодня")
-                        return True
+                # Проверяем, не использовал ли уже
+                session = self.db.get_session()
+                try:
+                    user = session.query(User).filter_by(vk_id=user_id).first()
+                    promo_obj = session.query(PromoCode).filter_by(code=code).first()
+                    
+                    if user and promo_obj:
+                        used = session.query(PromoUsage).filter_by(
+                            user_id=user.id, promo_id=promo_obj.id
+                        ).first()
+                        if used:
+                            self.send_message(user_id, "❌ Вы уже использовали этот промокод")
+                            return True
+                finally:
+                    session.close()
                 
-                # Выдаем промокод
-                asyncio.run(self.db.add_promo_history(user_id, code))
-                asyncio.run(self.db.update_last_promo(user_id))
+                # Записываем использование
+                self.db.record_promo_usage(user_id, code)
                 
-                self.send_message(user_id, f"🎁 Ваш промокод:\n\n🔑 {code}\n\n💡 Активируйте в магазине:\n{SHOP_URL}")
+                self.send_message(user_id, f"🎁 Промокод активирован!\n\n🔑 {code}\n\n💡 Активируйте в магазине:\n{SHOP_URL}")
                 return True
         return False
     
@@ -475,9 +498,6 @@ class HostileRustVKBot:
             return
         
         code = code.strip().upper()
-        # Добавляем в JSON (как в ТГ боте)
-        from pathlib import Path
-        import json
         
         DATA_DIR = Path("data")
         DATA_DIR.mkdir(exist_ok=True)
@@ -485,13 +505,16 @@ class HostileRustVKBot:
         
         promos = []
         if DATA_PROMO.exists():
-            with open(DATA_PROMO, 'r') as f:
+            with open(DATA_PROMO, 'r', encoding='utf-8') as f:
                 promos = json.load(f)
         
         promos.append({"code": code, "date": datetime.now().isoformat()})
         
-        with open(DATA_PROMO, 'w') as f:
-            json.dump(promos, f, indent=2)
+        with open(DATA_PROMO, 'w', encoding='utf-8') as f:
+            json.dump(promos, f, indent=2, ensure_ascii=False)
+        
+        # Также добавляем в БД
+        self.db.add_promo(code, "Промокод")
         
         if admin_id in self.user_states:
             del self.user_states[admin_id]
@@ -503,15 +526,12 @@ class HostileRustVKBot:
         if admin_id not in ADMIN_IDS:
             return
         
-        from pathlib import Path
-        import json
-        
         DATA_DIR = Path("data")
         DATA_PROMO = DATA_DIR / "promocodes.json"
         
         promos = []
         if DATA_PROMO.exists():
-            with open(DATA_PROMO, 'r') as f:
+            with open(DATA_PROMO, 'r', encoding='utf-8') as f:
                 promos = json.load(f)
         
         if not promos:
@@ -530,15 +550,12 @@ class HostileRustVKBot:
         if admin_id not in ADMIN_IDS:
             return
         
-        from pathlib import Path
-        import json
-        
         DATA_DIR = Path("data")
         DATA_PROMO = DATA_DIR / "promocodes.json"
         
         promos = []
         if DATA_PROMO.exists():
-            with open(DATA_PROMO, 'r') as f:
+            with open(DATA_PROMO, 'r', encoding='utf-8') as f:
                 promos = json.load(f)
         
         if not promos:
@@ -563,15 +580,12 @@ class HostileRustVKBot:
         if admin_id not in ADMIN_IDS:
             return
         
-        from pathlib import Path
-        import json
-        
         DATA_DIR = Path("data")
         DATA_PROMO = DATA_DIR / "promocodes.json"
         
         promos = []
         if DATA_PROMO.exists():
-            with open(DATA_PROMO, 'r') as f:
+            with open(DATA_PROMO, 'r', encoding='utf-8') as f:
                 promos = json.load(f)
         
         new_promos = []
@@ -580,8 +594,8 @@ class HostileRustVKBot:
             if p_code != code:
                 new_promos.append(p)
         
-        with open(DATA_PROMO, 'w') as f:
-            json.dump(new_promos, f, indent=2)
+        with open(DATA_PROMO, 'w', encoding='utf-8') as f:
+            json.dump(new_promos, f, indent=2, ensure_ascii=False)
         
         self.send_message(admin_id, f"✅ Промокод {code} удален!", self.keyboards.admin_keyboard())
     
@@ -600,10 +614,21 @@ class HostileRustVKBot:
         if admin_id not in ADMIN_IDS:
             return
         
-        users = asyncio.run(self.db.count_users())
-        promos = asyncio.run(self.db.count_total_promos())
+        session = self.db.get_session()
+        try:
+            users_count = session.query(User).count()
+            promos_count = session.query(PromoCode).filter_by(is_active=True).count()
+            tickets_count = session.query(Ticket).filter_by(status='open').count()
+            usage_count = session.query(PromoUsage).count()
+        finally:
+            session.close()
         
-        message = f"📊 СТАТИСТИКА\n\n👥 Пользователей: {users}\n🎁 Выдано промокодов: {promos}"
+        message = f"📊 СТАТИСТИКА\n\n"
+        message += f"👥 Пользователей: {users_count}\n"
+        message += f"🎁 Активных промокодов: {promos_count}\n"
+        message += f"📈 Использований промокодов: {usage_count}\n"
+        message += f"🎫 Открытых тикетов: {tickets_count}"
+        
         self.send_message(admin_id, message, self.keyboards.admin_keyboard())
     
     def show_users_list(self, admin_id):
@@ -611,8 +636,13 @@ class HostileRustVKBot:
         if admin_id not in ADMIN_IDS:
             return
         
-        users = asyncio.run(self.db.get_all_user_ids())
-        message = f"👥 ПОЛЬЗОВАТЕЛИ (всего: {len(users)})\n\nID:\n" + "\n".join(str(u) for u in users[:50])
+        users = self.db.get_all_users()
+        message = f"👥 ПОЛЬЗОВАТЕЛИ (всего: {len(users)})\n\n"
+        
+        for user in users[:20]:
+            message += f"• @id{user.vk_id} ({user.first_name} {user.last_name})\n"
+            message += f"  📅 {user.registered_at.strftime('%d.%m.%Y')}\n"
+        
         self.send_message(admin_id, message, self.keyboards.admin_keyboard())
     
     def start_broadcast(self, admin_id):
@@ -620,7 +650,7 @@ class HostileRustVKBot:
         if admin_id not in ADMIN_IDS:
             return
         
-        users = asyncio.run(self.db.get_all_user_ids())
+        users = self.db.get_all_users()
         self.user_states[admin_id] = 'waiting_broadcast'
         self.send_message(admin_id, f"📢 Введите текст рассылки\n(будет отправлено {len(users)} пользователям):", 
                         self.keyboards.back_keyboard())
@@ -630,17 +660,17 @@ class HostileRustVKBot:
         if admin_id not in ADMIN_IDS:
             return
         
-        users = asyncio.run(self.db.get_all_user_ids())
+        users = self.db.get_all_users()
         
         def broadcast():
             sent = 0
-            for uid in users:
+            for user in users:
                 try:
-                    self.send_message(uid, f"📢 РАССЫЛКА\n\n{text}")
+                    self.send_message(user.vk_id, f"📢 РАССЫЛКА\n\n{text}")
                     sent += 1
-                    time.sleep(0.34)  # Лимит VK
-                except:
-                    pass
+                    time.sleep(0.34)
+                except Exception as e:
+                    log.error(f"Ошибка отправки {user.vk_id}: {e}")
             
             self.send_message(admin_id, f"✅ Рассылка завершена!\nОтправлено: {sent}", 
                             self.keyboards.admin_keyboard())
@@ -667,7 +697,6 @@ class HostileRustVKBot:
                         except:
                             pass
                         
-                        # Запускаем обработку в отдельном потоке
                         threading.Thread(
                             target=self.handle_message,
                             args=(event.user_id, event.text, payload),
