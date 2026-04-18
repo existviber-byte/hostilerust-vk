@@ -219,7 +219,13 @@ class HostileRustVKBot:
         
         for key, server in SERVERS.items():
             message += f"🟢 {server['name']}\n"
-            message += f"📌 {server['ip']}\n\n"
+            message += f"📌 IP: {server['ip']}\n"
+            message += f"🔗 Мониторинг: {SHOP_URL}\n\n"
+        
+        message += "💡 Как подключиться:\n"
+        message += "1. Скопируйте IP адрес\n"
+        message += "2. В игре нажмите F1\n"
+        message += "3. Введите: client.connect IP\n"
         
         self.send_message(user_id, message, self.keyboards.servers_keyboard())
     
@@ -239,9 +245,19 @@ class HostileRustVKBot:
     
     def show_rules(self, user_id):
         """Правила сервера"""
-        rules_text = "📜 ПРАВИЛА HOSTILE RUST\n\n" + "\n\n".join(RULES)
-        rules_text += f"\n\n🔗 Discord: {DISCORD_URL}\n🔗 VK: {VK_GROUP_URL}"
-        self.send_message(user_id, rules_text, self.keyboards.back_keyboard())
+        # Отправляем правила по частям (ограничение VK 4096 символов)
+        rules_text = "📜 ПРАВИЛА HOSTILE RUST\n\n"
+        
+        for part in RULES:
+            if len(rules_text) + len(part) + 2 > 4000:
+                self.send_message(user_id, rules_text)
+                rules_text = part + "\n"
+            else:
+                rules_text += part + "\n"
+        
+        if rules_text:
+            rules_text += f"\n\n🔗 Discord: {DISCORD_URL}\n🔗 VK: {VK_GROUP_URL}"
+            self.send_message(user_id, rules_text, self.keyboards.back_keyboard())
     
     def show_shop(self, user_id):
         """Магазин"""
@@ -249,30 +265,49 @@ class HostileRustVKBot:
         self.send_message(user_id, message, self.keyboards.back_keyboard())
     
     def show_wipe_info(self, user_id):
-        """Информация о вайпе"""
+        """Информация о вайпе с учетом расписания"""
+        from datetime import datetime, timedelta
+        
         now = datetime.now()
         
-        # Поиск следующего четверга
+        # Находим следующий четверг
         days_until_thursday = (3 - now.weekday()) % 7
-        if days_until_thursday == 0 and now.hour >= 12:
-            days_until_thursday = 7
+        if days_until_thursday == 0:
+            # Сегодня четверг, проверяем время
+            current_hour = now.hour
+            is_first_thursday = now.day <= 7
+            
+            if is_first_thursday and current_hour >= 22:
+                days_until_thursday = 7
+            elif not is_first_thursday and current_hour >= 12:
+                days_until_thursday = 7
         
         next_wipe = now + timedelta(days=days_until_thursday)
-        next_wipe = next_wipe.replace(hour=12, minute=0, second=0)
         
-        if next_wipe.day <= 7:
-            next_wipe = next_wipe.replace(hour=22)
+        # Определяем время вайпа
+        is_first_thursday = next_wipe.day <= 7
+        wipe_hour = 22 if is_first_thursday else 12
         
+        next_wipe = next_wipe.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
+        
+        # Вычисляем оставшееся время
         delta = next_wipe - now
         days = delta.days
         hours = delta.seconds // 3600
         minutes = (delta.seconds % 3600) // 60
         
-        message = f"💣 ДО СЛЕДУЮЩЕГО ВАЙПА\n\n"
+        message = "💣 ДО СЛЕДУЮЩЕГО ВАЙПА\n\n"
         message += f"🗓 {days} дней\n"
         message += f"🕒 {hours} часов\n"
         message += f"⏱ {minutes} минут\n\n"
-        message += f"📅 Расписание:\n{WIPE_SCHEDULE}"
+        message += f"📅 Дата: {next_wipe.strftime('%d.%m.%Y')} в {wipe_hour}:00 МСК\n\n"
+        
+        if is_first_thursday:
+            message += "⚠️ Это первый четверг месяца — вайп в 22:00!"
+        else:
+            message += "📌 Обычный четверг — вайп в 12:00"
+        
+        message += f"\n\n📋 Расписание:\n{WIPE_SCHEDULE}"
         
         self.send_message(user_id, message, self.keyboards.back_keyboard())
     
