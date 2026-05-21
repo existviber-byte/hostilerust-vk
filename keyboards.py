@@ -58,7 +58,7 @@ class Keyboards:
         """Клавиатура с серверами"""
         keyboard = VkKeyboard(inline=True)
         
-        keyboard.add_button('📋 x5 IP', color=VkKeyboardColor.PRIMARY, 
+        keyboard.add_button('📋 x2 IP', color=VkKeyboardColor.PRIMARY, 
                           payload={'command': 'copy_ip_x5'})
         keyboard.add_line()
         keyboard.add_button('📋 x100 IP', color=VkKeyboardColor.PRIMARY,
