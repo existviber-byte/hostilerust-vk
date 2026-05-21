@@ -55,31 +55,31 @@ class HostileRustVKBot:
         log.info(f"👑 Администраторы: {self.admin_ids}")
     
     def load_admins(self):
-    """Загрузка списка админов из файла"""
-    DATA_DIR = Path("data")
-    ADMIN_FILE = DATA_DIR / "admins.json"
-    
-    try:
-        if ADMIN_FILE.exists() and ADMIN_FILE.stat().st_size > 0:
-            with open(ADMIN_FILE, 'r', encoding='utf-8') as f:
-                admins = json.load(f)
-                if isinstance(admins, list) and admins:  # Проверяем, что это список и он не пустой
-                    return admins
-    except (json.JSONDecodeError, FileNotFoundError) as e:
-        log.error(f"❌ Ошибка загрузки admins.json: {e}")
-        if ADMIN_FILE.exists():
-            backup_file = ADMIN_FILE.with_suffix('.json.backup')
-            ADMIN_FILE.rename(backup_file)
-            log.info(f"📁 Поврежденный файл сохранен как {backup_file}")
-    
-    # Если файла нет или он поврежден, создаем с админами из config
-    admins = list(ADMIN_IDS)
-    DATA_DIR.mkdir(exist_ok=True)
-    with open(ADMIN_FILE, 'w', encoding='utf-8') as f:
-        json.dump(admins, f, indent=2, ensure_ascii=False)
-    
-    log.info("✅ Создан новый список администраторов")
-    return admins
+        """Загрузка списка админов из файла"""
+        DATA_DIR = Path("data")
+        ADMIN_FILE = DATA_DIR / "admins.json"
+        
+        try:
+            if ADMIN_FILE.exists() and ADMIN_FILE.stat().st_size > 0:
+                with open(ADMIN_FILE, 'r', encoding='utf-8') as f:
+                    admins = json.load(f)
+                    if isinstance(admins, list) and admins:
+                        return admins
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            log.error(f"❌ Ошибка загрузки admins.json: {e}")
+            if ADMIN_FILE.exists():
+                backup_file = ADMIN_FILE.with_suffix('.json.backup')
+                ADMIN_FILE.rename(backup_file)
+                log.info(f"📁 Поврежденный файл сохранен как {backup_file}")
+        
+        # Если файла нет или он поврежден, создаем с админами из config
+        admins = list(ADMIN_IDS)
+        DATA_DIR.mkdir(exist_ok=True)
+        with open(ADMIN_FILE, 'w', encoding='utf-8') as f:
+            json.dump(admins, f, indent=2, ensure_ascii=False)
+        
+        log.info("✅ Создан новый список администраторов")
+        return admins
     
     def save_admins(self):
         """Сохранение списка админов в файл"""
@@ -90,46 +90,45 @@ class HostileRustVKBot:
             json.dump(self.admin_ids, f, indent=2, ensure_ascii=False)
     
     def load_servers_config(self):
-    """Загрузка конфигурации серверов из файла"""
-    DATA_DIR = Path("data")
-    SERVERS_FILE = DATA_DIR / "servers.json"
-    
-    try:
-        if SERVERS_FILE.exists() and SERVERS_FILE.stat().st_size > 0:
-            with open(SERVERS_FILE, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                if config:  # Проверяем, что словарь не пустой
-                    return config
-    except (json.JSONDecodeError, FileNotFoundError) as e:
-        log.error(f"❌ Ошибка загрузки servers.json: {e}")
-        # Создаем резервную копию поврежденного файла
-        if SERVERS_FILE.exists():
-            backup_file = SERVERS_FILE.with_suffix('.json.backup')
-            SERVERS_FILE.rename(backup_file)
-            log.info(f"📁 Поврежденный файл сохранен как {backup_file}")
-    
-    # Если файла нет или он поврежден, создаем с серверами по умолчанию
-    servers = {
-        "x2": {
-            "name": "HOSTILE RUST | x2 | SOLO/DUO",
-            "ip": "37.230.137.6:20600",
-            "wipe_interval": 2,
-            "description": "Сервер x2, вайп раз в 2 недели"
-        },
-        "x100": {
-            "name": "HOSTILE RUST | x100 | CLANS",
-            "ip": "78.46.56.22:20500",
-            "wipe_interval": 1,
-            "description": "Сервер x100, вайп каждую неделю"
+        """Загрузка конфигурации серверов из файла"""
+        DATA_DIR = Path("data")
+        SERVERS_FILE = DATA_DIR / "servers.json"
+        
+        try:
+            if SERVERS_FILE.exists() and SERVERS_FILE.stat().st_size > 0:
+                with open(SERVERS_FILE, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    if config:
+                        return config
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            log.error(f"❌ Ошибка загрузки servers.json: {e}")
+            if SERVERS_FILE.exists():
+                backup_file = SERVERS_FILE.with_suffix('.json.backup')
+                SERVERS_FILE.rename(backup_file)
+                log.info(f"📁 Поврежденный файл сохранен как {backup_file}")
+        
+        # Если файла нет или он поврежден, создаем с серверами по умолчанию
+        servers = {
+            "x2": {
+                "name": "HOSTILE RUST | x2 | SOLO/DUO",
+                "ip": "37.230.137.6:20600",
+                "wipe_interval": 2,
+                "description": "Сервер x2, вайп раз в 2 недели"
+            },
+            "x100": {
+                "name": "HOSTILE RUST | x100 | CLANS",
+                "ip": "78.46.56.22:20500",
+                "wipe_interval": 1,
+                "description": "Сервер x100, вайп каждую неделю"
+            }
         }
-    }
-    
-    DATA_DIR.mkdir(exist_ok=True)
-    with open(SERVERS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(servers, f, indent=2, ensure_ascii=False)
-    
-    log.info("✅ Создана новая конфигурация серверов")
-    return servers
+        
+        DATA_DIR.mkdir(exist_ok=True)
+        with open(SERVERS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(servers, f, indent=2, ensure_ascii=False)
+        
+        log.info("✅ Создана новая конфигурация серверов")
+        return servers
     
     def save_servers_config(self):
         """Сохранение конфигурации серверов в файл"""
@@ -774,8 +773,11 @@ class HostileRustVKBot:
         if not DATA_PROMO.exists():
             return False
         
-        with open(DATA_PROMO, 'r', encoding='utf-8') as f:
-            promos = json.load(f)
+        try:
+            with open(DATA_PROMO, 'r', encoding='utf-8') as f:
+                promos = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            return False
         
         for promo in promos:
             code = promo["code"] if isinstance(promo, dict) else promo
@@ -822,8 +824,11 @@ class HostileRustVKBot:
         
         promos = []
         if DATA_PROMO.exists():
-            with open(DATA_PROMO, 'r', encoding='utf-8') as f:
-                promos = json.load(f)
+            try:
+                with open(DATA_PROMO, 'r', encoding='utf-8') as f:
+                    promos = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                promos = []
         
         promos.append({"code": code, "date": datetime.now().isoformat()})
         
@@ -847,8 +852,11 @@ class HostileRustVKBot:
         
         promos = []
         if DATA_PROMO.exists():
-            with open(DATA_PROMO, 'r', encoding='utf-8') as f:
-                promos = json.load(f)
+            try:
+                with open(DATA_PROMO, 'r', encoding='utf-8') as f:
+                    promos = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                promos = []
         
         if not promos:
             self.send_message(admin_id, "📭 Список промокодов пуст", self.keyboards.admin_keyboard())
@@ -871,8 +879,11 @@ class HostileRustVKBot:
         
         promos = []
         if DATA_PROMO.exists():
-            with open(DATA_PROMO, 'r', encoding='utf-8') as f:
-                promos = json.load(f)
+            try:
+                with open(DATA_PROMO, 'r', encoding='utf-8') as f:
+                    promos = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                promos = []
         
         if not promos:
             self.send_message(admin_id, "📭 Список промокодов пуст", self.keyboards.admin_keyboard())
@@ -901,8 +912,11 @@ class HostileRustVKBot:
         
         promos = []
         if DATA_PROMO.exists():
-            with open(DATA_PROMO, 'r', encoding='utf-8') as f:
-                promos = json.load(f)
+            try:
+                with open(DATA_PROMO, 'r', encoding='utf-8') as f:
+                    promos = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                promos = []
         
         new_promos = []
         for p in promos:
