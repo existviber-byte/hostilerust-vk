@@ -116,6 +116,9 @@ class HostileRustVKBot:
                     code = command.replace('confirm_delete_promo_', '')
                     self.delete_promo(user_id, code)
                     return
+                elif command == 'create_ticket_from_unknown':
+                    self.start_ticket_creation(user_id)
+                    return
             except Exception as e:
                 log.error(f"❌ Ошибка обработки payload: {e}")
         
@@ -186,12 +189,16 @@ class HostileRustVKBot:
                 self.start_broadcast(user_id)
             elif text_lower in ['❌ закрыть тикет', 'закрыть тикет']:
                 self.show_open_tickets_for_close(user_id)
+            else:
+                # Админ написал что-то другое - предлагаем тикет
+                self.offer_ticket_creation(user_id)
         
         # Проверка на ввод промокода
         elif self.check_promo_code(user_id, text):
             pass
         else:
-            self.show_main_menu(user_id)
+            # Любое другое сообщение - предлагаем создать тикет
+            self.offer_ticket_creation(user_id)
     
     def show_main_menu(self, user_id):
         """Главное меню"""
@@ -276,45 +283,85 @@ class HostileRustVKBot:
         message = f"🛒 МАГАЗИН HOSTILE RUST\n\n{SHOP_URL}\n\n💡 Перейдите по ссылке для пополнения баланса!"
         self.send_message(user_id, message, self.keyboards.back_keyboard())
     
-    def show_wipe_info(self, user_id):
-        """Информация о вайпе"""
+    def get_next_wipe_date(self, weeks_interval, wipe_hour=12):
+        """Расчет даты следующего вайпа с учетом интервала в неделях"""
         now = datetime.now()
         
+        # Находим следующий четверг
         days_until_thursday = (3 - now.weekday()) % 7
         if days_until_thursday == 0:
-            current_hour = now.hour
-            is_first_thursday = now.day <= 7
+            # Сегодня четверг
+            if now.hour >= wipe_hour:
+                days_until_thursday = 7
+        
+        next_thursday = now + timedelta(days=days_until_thursday)
+        next_thursday = next_thursday.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
+        
+        # Если интервал больше 1 недели, проверяем четность недели
+        if weeks_interval > 1:
+            # Получаем номер недели для следующего четверга
+            week_number = next_thursday.isocalendar()[1]
             
-            if is_first_thursday and current_hour >= 22:
-                days_until_thursday = 7
-            elif not is_first_thursday and current_hour >= 12:
-                days_until_thursday = 7
+            # Если неделя нечетная, а нам нужна четная (или наоборот)
+            if week_number % weeks_interval != 0:
+                # Добавляем еще неделю
+                next_thursday += timedelta(weeks=1)
         
-        next_wipe = now + timedelta(days=days_until_thursday)
-        is_first_thursday = next_wipe.day <= 7
-        wipe_hour = 22 if is_first_thursday else 12
+        # Проверяем, не прошла ли уже дата вайпа
+        if next_thursday <= now:
+            next_thursday += timedelta(weeks=weeks_interval)
         
-        next_wipe = next_wipe.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
+        return next_thursday
+    
+    def show_wipe_info(self, user_id):
+        """Информация о вайпах"""
+        now = datetime.now()
         
-        delta = next_wipe - now
-        days = delta.days
-        hours = delta.seconds // 3600
-        minutes = (delta.seconds % 3600) // 60
+        # Получаем даты следующих вайпов для каждого сервера
+        next_wipe_x2 = self.get_next_wipe_date(weeks_interval=2, wipe_hour=12)
+        next_wipe_x100 = self.get_next_wipe_date(weeks_interval=1, wipe_hour=12)
         
-        message = "💣 ДО СЛЕДУЮЩЕГО ВАЙПА\n\n"
-        message += f"🗓 {days} дней\n"
-        message += f"🕒 {hours} часов\n"
-        message += f"⏱ {minutes} минут\n\n"
-        message += f"📅 Дата: {next_wipe.strftime('%d.%m.%Y')} в {wipe_hour}:00 МСК\n\n"
+        # Расчет времени до вайпа x2
+        delta_x2 = next_wipe_x2 - now
+        days_x2 = delta_x2.days
+        hours_x2 = delta_x2.seconds // 3600
+        minutes_x2 = (delta_x2.seconds % 3600) // 60
         
-        if is_first_thursday:
-            message += "⚠️ Это первый четверг месяца — вайп в 22:00!"
-        else:
-            message += "📌 Обычный четверг — вайп в 12:00"
+        # Расчет времени до вайпа x100
+        delta_x100 = next_wipe_x100 - now
+        days_x100 = delta_x100.days
+        hours_x100 = delta_x100.seconds // 3600
+        minutes_x100 = (delta_x100.seconds % 3600) // 60
         
-        message += f"\n\n📋 Расписание:\n{WIPE_SCHEDULE}"
+        message = "💣 ИНФОРМАЦИЯ О ВАЙПАХ\n\n"
+        
+        # Информация о вайпе x2
+        message += "🔵 СЕРВЕР x2 (раз в 2 недели)\n"
+        message += f"📅 Дата: {next_wipe_x2.strftime('%d.%m.%Y')} в 12:00 МСК\n"
+        message += f"⏳ До вайпа: {days_x2} д. {hours_x2} ч. {minutes_x2} мин.\n\n"
+        
+        # Информация о вайпе x100
+        message += "🔴 СЕРВЕР x100 (каждую неделю)\n"
+        message += f"📅 Дата: {next_wipe_x100.strftime('%d.%m.%Y')} в 12:00 МСК\n"
+        message += f"⏳ До вайпа: {days_x100} д. {hours_x100} ч. {minutes_x100} мин.\n\n"
+        
+        message += "📌 Все вайпы проходят по четвергам"
         
         self.send_message(user_id, message, self.keyboards.back_keyboard())
+    
+    def offer_ticket_creation(self, user_id):
+        """Предложение создать тикет при неизвестном сообщении"""
+        keyboard = VkKeyboard(inline=True)
+        keyboard.add_button('🎫 Создать тикет', VkKeyboardColor.POSITIVE, 
+                           payload={'command': 'create_ticket_from_unknown'})
+        keyboard.add_button('📋 Главное меню', VkKeyboardColor.SECONDARY,
+                           payload={'command': 'back_to_main'})
+        
+        message = "🤔 Я не совсем понял ваш запрос.\n\n"
+        message += "Хотите создать тикет для связи с администрацией?\n"
+        message += "Администратор ответит вам в ближайшее время."
+        
+        self.send_message(user_id, message, keyboard)
     
     # ========== ТИКЕТЫ ==========
     
