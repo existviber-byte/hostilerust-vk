@@ -33,13 +33,85 @@ class Keyboards:
         keyboard.add_button('➖ Удалить промо', color=VkKeyboardColor.NEGATIVE)
         keyboard.add_line()
         keyboard.add_button('📋 Список промокодов', color=VkKeyboardColor.PRIMARY)
-        keyboard.add_button('👥 Пользователи', color=VkKeyboardColor.PRIMARY)
+        keyboard.add_button('📈 Статистика промокодов', color=VkKeyboardColor.PRIMARY)
         keyboard.add_line()
+        keyboard.add_button('👥 Пользователи', color=VkKeyboardColor.SECONDARY)
         keyboard.add_button('📊 Статистика', color=VkKeyboardColor.SECONDARY)
-        keyboard.add_button('📩 Тикеты', color=VkKeyboardColor.SECONDARY)
         keyboard.add_line()
+        keyboard.add_button('📩 Тикеты', color=VkKeyboardColor.PRIMARY)
         keyboard.add_button('📢 Рассылка', color=VkKeyboardColor.POSITIVE)
+        keyboard.add_line()
+        keyboard.add_button('👑 Управление админами', color=VkKeyboardColor.PRIMARY)
+        keyboard.add_button('🔧 Редактировать сервера', color=VkKeyboardColor.PRIMARY)
+        keyboard.add_line()
         keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY)
+        
+        return keyboard
+    
+    def admin_management_keyboard(self):
+        """Клавиатура управления админами"""
+        keyboard = VkKeyboard(inline=True)
+        
+        keyboard.add_button('➕ Добавить админа', color=VkKeyboardColor.POSITIVE,
+                          payload={'command': 'start_add_admin'})
+        keyboard.add_line()
+        keyboard.add_button('➖ Удалить админа', color=VkKeyboardColor.NEGATIVE,
+                          payload={'command': 'start_remove_admin'})
+        keyboard.add_line()
+        keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY,
+                          payload={'command': 'admin_back'})
+        
+        return keyboard
+    
+    def servers_editor_keyboard(self, servers_config):
+        """Клавиатура редактора серверов"""
+        keyboard = VkKeyboard(inline=True)
+        
+        for key, server in servers_config.items():
+            keyboard.add_button(f'✏️ {server["name"][:30]}', color=VkKeyboardColor.PRIMARY,
+                              payload={'command': f'edit_server_{key}'})
+            keyboard.add_line()
+        
+        keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY,
+                          payload={'command': 'admin_back'})
+        
+        return keyboard
+    
+    def server_edit_options_keyboard(self, server_key):
+        """Клавиатура опций редактирования сервера"""
+        keyboard = VkKeyboard(inline=True)
+        
+        keyboard.add_button('📝 Изменить название', color=VkKeyboardColor.PRIMARY,
+                          payload={'command': f'edit_server_name_{server_key}'})
+        keyboard.add_line()
+        keyboard.add_button('🌐 Изменить IP', color=VkKeyboardColor.PRIMARY,
+                          payload={'command': f'edit_server_ip_{server_key}'})
+        keyboard.add_line()
+        keyboard.add_button('🔄 Изменить вайп', color=VkKeyboardColor.PRIMARY,
+                          payload={'command': f'edit_server_wipe_{server_key}'})
+        keyboard.add_line()
+        keyboard.add_button('🕐 Изменить час вайпа', color=VkKeyboardColor.PRIMARY,
+                          payload={'command': f'edit_server_hour_{server_key}'})
+        keyboard.add_line()
+        keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY,
+                          payload={'command': 'admin_edit_servers'})
+        
+        return keyboard
+    
+    def remove_admin_keyboard(self, admin_ids, current_admin_id):
+        """Клавиатура для удаления админов"""
+        keyboard = VkKeyboard(inline=True)
+        
+        for aid in admin_ids:
+            if aid != current_admin_id:  # Нельзя удалить самого себя
+                # Здесь нужно получить имя пользователя, но мы не можем это сделать в клавиатуре
+                # Поэтому используем ID
+                keyboard.add_button(f'❌ Удалить id{aid}', color=VkKeyboardColor.NEGATIVE,
+                                  payload={'command': f'remove_admin_{aid}'})
+                keyboard.add_line()
+        
+        keyboard.add_button('◀️ Назад', color=VkKeyboardColor.SECONDARY,
+                          payload={'command': 'admin_manage_admins'})
         
         return keyboard
     
@@ -59,8 +131,7 @@ class Keyboards:
         keyboard = VkKeyboard(inline=True)
         
         keyboard.add_button('📋 x2 IP', color=VkKeyboardColor.PRIMARY, 
-                          payload={'command': 'copy_ip_x5'})
-        keyboard.add_line()
+                          payload={'command': 'copy_ip_x2'})
         keyboard.add_button('📋 x100 IP', color=VkKeyboardColor.PRIMARY,
                           payload={'command': 'copy_ip_x100'})
         keyboard.add_line()
