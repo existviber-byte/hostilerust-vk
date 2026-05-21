@@ -16,12 +16,12 @@ PROMO_EXPIRATION_DAYS = 30
 
 # Настройки серверов
 SERVERS = {
-    'x5': {
+    'x2': {
         'name': 'Hostile Rust [x2]',
         'ip': '37.230.137.6:20600',
         'rcon_ip': '37.230.137.6',
         'rcon_port': 20601,
-        'rcon_password': os.getenv('RCON_PASSWORD_X5', '')
+        'rcon_password': os.getenv('RCON_PASSWORD_X2', '')
     },
     'x100': {
         'name': 'Hostile Rust [x100]',
