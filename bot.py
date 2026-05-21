@@ -63,7 +63,6 @@ class HostileRustVKBot:
             with open(ADMIN_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         else:
-            # Если файла нет, создаем с админами из config
             admins = list(ADMIN_IDS)
             DATA_DIR.mkdir(exist_ok=True)
             with open(ADMIN_FILE, 'w', encoding='utf-8') as f:
@@ -87,21 +86,18 @@ class HostileRustVKBot:
             with open(SERVERS_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         else:
-            # Если файла нет, создаем с серверами из config
             servers = {
                 "x2": {
-                    "name": "HOSTILE RUST | x2 | SOLO/DUO",
-                    "ip": "185.207.214.66:28015",
+                    "name": "HOSTILE RUST | x2 | NOLIMIT",
+                    "ip": "37.230.137.6:20600",
                     "wipe_interval": 2,
-                    "wipe_hour": 12,
-                    "description": "Сервер x2 для соло/дуо игры"
+                    "description": "Сервер x2, вайп раз в 2 недели"
                 },
                 "x100": {
                     "name": "HOSTILE RUST | x100 | CLANS",
-                    "ip": "185.207.214.66:28016",
+                    "ip": "78.46.56.22:20500",
                     "wipe_interval": 1,
-                    "wipe_hour": 12,
-                    "description": "Сервер x100 для кланов"
+                    "description": "Сервер x100, вайп каждую неделю"
                 }
             }
             DATA_DIR.mkdir(exist_ok=True)
@@ -195,9 +191,11 @@ class HostileRustVKBot:
                 elif command == 'admin_manage_admins':
                     self.show_admin_management(user_id)
                     return
-                elif command.startswith('add_admin_'):
-                    new_admin_id = int(command.replace('add_admin_', ''))
-                    self.add_admin(user_id, new_admin_id)
+                elif command == 'start_add_admin':
+                    self.start_add_admin_flow(user_id)
+                    return
+                elif command == 'start_remove_admin':
+                    self.start_remove_admin_flow(user_id)
                     return
                 elif command.startswith('remove_admin_'):
                     remove_admin_id = int(command.replace('remove_admin_', ''))
@@ -209,6 +207,18 @@ class HostileRustVKBot:
                 elif command.startswith('edit_server_'):
                     server_key = command.replace('edit_server_', '')
                     self.start_edit_server(user_id, server_key)
+                    return
+                elif command.startswith('edit_name_'):
+                    server_key = command.replace('edit_name_', '')
+                    self.start_edit_server_name(user_id, server_key)
+                    return
+                elif command.startswith('edit_ip_'):
+                    server_key = command.replace('edit_ip_', '')
+                    self.start_edit_server_ip(user_id, server_key)
+                    return
+                elif command.startswith('edit_wipe_'):
+                    server_key = command.replace('edit_wipe_', '')
+                    self.start_edit_server_wipe(user_id, server_key)
                     return
                 elif command == 'admin_promo_stats':
                     self.show_promo_stats(user_id)
@@ -250,9 +260,6 @@ class HostileRustVKBot:
                 return
             elif state == 'waiting_add_admin':
                 self.process_add_admin(user_id, text)
-                return
-            elif state == 'waiting_remove_admin':
-                self.process_remove_admin(user_id, text)
                 return
         
         # Обработка текстовых команд
@@ -403,41 +410,63 @@ class HostileRustVKBot:
         message = f"🛒 МАГАЗИН HOSTILE RUST\n\n{SHOP_URL}\n\n💡 Перейдите по ссылке для пополнения баланса!"
         self.send_message(user_id, message, self.keyboards.back_keyboard())
     
+    def is_first_thursday_of_month(self, date):
+        """Проверка, является ли четверг первым в месяце"""
+        return date.day <= 7 and date.weekday() == 3
+    
     def get_next_wipe_date(self, server_key):
-        """Расчет даты следующего вайпа для конкретного сервера"""
+        """Расчет даты следующего вайпа с учетом первого четверга месяца"""
         server = self.servers_config.get(server_key)
         if not server:
             return None
         
         now = datetime.now()
         weeks_interval = server.get('wipe_interval', 1)
-        wipe_hour = server.get('wipe_hour', 12)
         
         # Находим следующий четверг
         days_until_thursday = (3 - now.weekday()) % 7
-        if days_until_thursday == 0:
-            if now.hour >= wipe_hour:
-                days_until_thursday = 7
         
         next_thursday = now + timedelta(days=days_until_thursday)
-        next_thursday = next_thursday.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
         
-        # Если интервал больше 1 недели, проверяем четность недели
+        # Определяем время вайпа (12:00 обычно, 22:00 в первый четверг месяца)
+        if self.is_first_thursday_of_month(next_thursday):
+            wipe_hour = 22
+        else:
+            wipe_hour = 12
+        
+        next_wipe = next_thursday.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
+        
+        # Если сегодня четверг и время вайпа уже прошло
+        if days_until_thursday == 0 and now >= next_wipe:
+            next_thursday = now + timedelta(days=7)
+            if self.is_first_thursday_of_month(next_thursday):
+                wipe_hour = 22
+            else:
+                wipe_hour = 12
+            next_wipe = next_thursday.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
+        
+        # Для x2 сервера (раз в 2 недели)
         if weeks_interval > 1:
-            week_number = next_thursday.isocalendar()[1]
-            if week_number % weeks_interval != 0:
-                next_thursday += timedelta(weeks=1)
+            # Проверяем, что это правильная неделя (четная)
+            week_number = next_wipe.isocalendar()[1]
+            if week_number % 2 != 0:
+                next_wipe += timedelta(weeks=1)
+                if self.is_first_thursday_of_month(next_wipe):
+                    wipe_hour = 22
+                else:
+                    wipe_hour = 12
+                next_wipe = next_wipe.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
         
-        if next_thursday <= now:
-            next_thursday += timedelta(weeks=weeks_interval)
-        
-        return next_thursday
+        return next_wipe
     
     def show_wipe_info(self, user_id):
         """Информация о вайпах"""
         now = datetime.now()
         
         message = "💣 ИНФОРМАЦИЯ О ВАЙПАХ\n\n"
+        message += "📌 Все вайпы проходят по четвергам\n"
+        message += "🕐 Обычное время: 12:00 МСК\n"
+        message += "🕙 Первый четверг месяца: 22:00 МСК\n\n"
         
         for key, server in self.servers_config.items():
             next_wipe = self.get_next_wipe_date(key)
@@ -447,13 +476,19 @@ class HostileRustVKBot:
                 hours = delta.seconds // 3600
                 minutes = (delta.seconds % 3600) // 60
                 
+                is_first = self.is_first_thursday_of_month(next_wipe)
+                wipe_time = "22:00" if is_first else "12:00"
+                
                 emoji = "🔵" if "x2" in server['name'].lower() else "🔴"
                 message += f"{emoji} {server['name']}\n"
-                message += f"📅 Дата: {next_wipe.strftime('%d.%m.%Y')} в {server.get('wipe_hour', 12)}:00 МСК\n"
+                message += f"📅 Дата: {next_wipe.strftime('%d.%m.%Y')} в {wipe_time} МСК\n"
                 message += f"⏳ До вайпа: {days} д. {hours} ч. {minutes} мин.\n"
-                message += f"🔄 Периодичность: раз в {server.get('wipe_interval', 1)} нед.\n\n"
-        
-        message += "📌 Все вайпы проходят по четвергам"
+                message += f"🔄 Периодичность: раз в {server.get('wipe_interval', 1)} нед.\n"
+                
+                if is_first:
+                    message += "⚠️ Это первый четверг месяца — вайп в 22:00!\n"
+                
+                message += "\n"
         
         self.send_message(user_id, message, self.keyboards.back_keyboard())
     
@@ -861,7 +896,6 @@ class HostileRustVKBot:
         
         session = self.db.get_session()
         try:
-            # Получаем последние использования промокодов
             recent_usages = session.query(PromoUsage).order_by(
                 PromoUsage.used_at.desc()
             ).limit(10).all()
@@ -887,9 +921,7 @@ class HostileRustVKBot:
             else:
                 message += "Нет активаций\n"
             
-            # Статистика по использованию
             total_usages = session.query(PromoUsage).count()
-            
             message += f"\n📊 ВСЕГО АКТИВАЦИЙ: {total_usages}"
             
         finally:
@@ -915,15 +947,7 @@ class HostileRustVKBot:
             except:
                 message += f"• id{aid}\n"
         
-        keyboard = VkKeyboard(inline=True)
-        keyboard.add_button('➕ Добавить админа', VkKeyboardColor.POSITIVE,
-                          payload={'command': 'start_add_admin'})
-        keyboard.add_line()
-        keyboard.add_button('➖ Удалить админа', VkKeyboardColor.NEGATIVE,
-                          payload={'command': 'start_remove_admin'})
-        keyboard.add_line()
-        keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY,
-                          payload={'command': 'admin_back'})
+        keyboard = self.keyboards.admin_management_keyboard()
         
         self.send_message(admin_id, message, keyboard)
     
@@ -944,7 +968,6 @@ class HostileRustVKBot:
         try:
             new_admin_id = int(text.strip())
             
-            # Проверяем существование пользователя
             try:
                 user_info = self.vk_api.users.get(user_ids=new_admin_id)[0]
                 user_name = f"{user_info['first_name']} {user_info['last_name']}"
@@ -966,7 +989,6 @@ class HostileRustVKBot:
             self.send_message(admin_id, f"✅ {user_name} (id{new_admin_id}) добавлен в администраторы!", 
                             self.keyboards.admin_keyboard())
             
-            # Уведомляем нового админа
             self.send_message(new_admin_id, "🎉 Поздравляем! Вы назначены администратором Hostile Rust!")
             
         except ValueError:
@@ -983,7 +1005,7 @@ class HostileRustVKBot:
         keyboard = VkKeyboard(inline=True)
         
         for aid in self.admin_ids:
-            if aid != admin_id:  # Нельзя удалить самого себя
+            if aid != admin_id:
                 try:
                     user_info = self.vk_api.users.get(user_ids=aid)[0]
                     user_name = f"{user_info['first_name']} {user_info['last_name']}"
@@ -994,7 +1016,7 @@ class HostileRustVKBot:
                     pass
         
         keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY,
-                          payload={'command': 'admin_back'})
+                          payload={'command': 'admin_manage_admins'})
         
         self.send_message(admin_id, "➖ Выберите админа для удаления:", keyboard)
     
@@ -1037,18 +1059,9 @@ class HostileRustVKBot:
         for key, server in self.servers_config.items():
             message += f"🟢 {server['name']}\n"
             message += f"   IP: {server['ip']}\n"
-            message += f"   Вайп: раз в {server.get('wipe_interval', 1)} нед.\n"
-            message += f"   Час вайпа: {server.get('wipe_hour', 12)}:00\n\n"
+            message += f"   Вайп: раз в {server.get('wipe_interval', 1)} нед.\n\n"
         
-        keyboard = VkKeyboard(inline=True)
-        
-        for key, server in self.servers_config.items():
-            keyboard.add_button(f'✏️ {server["name"][:30]}', VkKeyboardColor.PRIMARY,
-                              payload={'command': f'edit_server_{key}'})
-            keyboard.add_line()
-        
-        keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY,
-                          payload={'command': 'admin_back'})
+        keyboard = self.keyboards.servers_editor_keyboard(self.servers_config)
         
         self.send_message(admin_id, message, keyboard)
     
@@ -1062,20 +1075,21 @@ class HostileRustVKBot:
             self.send_message(admin_id, "❌ Сервер не найден")
             return
         
+        keyboard = self.keyboards.server_edit_options_keyboard(server_key)
+        
         message = f"✏️ РЕДАКТИРОВАНИЕ: {server['name']}\n\n"
-        message += "Что хотите изменить?\n"
-        message += "Напишите:\n"
-        message += "• название: Новое название\n"
-        message += "• ip: Новый IP\n"
-        message += "• вайп: Интервал в неделях\n"
-        
-        self.user_states[admin_id] = f'editing_server_{server_key}'
-        
-        keyboard = VkKeyboard(inline=True)
-        keyboard.add_button('❌ Отмена', VkKeyboardColor.NEGATIVE,
-                          payload={'command': 'admin_edit_servers'})
+        message += "Что хотите изменить?"
         
         self.send_message(admin_id, message, keyboard)
+    
+    def start_edit_server_name(self, admin_id, server_key):
+        """Начало изменения названия сервера"""
+        if not self.is_admin(admin_id):
+            return
+        
+        self.user_states[admin_id] = f'edit_server_name_{server_key}'
+        self.send_message(admin_id, "📝 Введите новое название сервера:", 
+                        self.keyboards.back_keyboard())
     
     def edit_server_name(self, admin_id, server_key, text):
         """Изменение названия сервера"""
@@ -1092,6 +1106,15 @@ class HostileRustVKBot:
         if admin_id in self.user_states:
             del self.user_states[admin_id]
     
+    def start_edit_server_ip(self, admin_id, server_key):
+        """Начало изменения IP сервера"""
+        if not self.is_admin(admin_id):
+            return
+        
+        self.user_states[admin_id] = f'edit_server_ip_{server_key}'
+        self.send_message(admin_id, "🌐 Введите новый IP адрес сервера:", 
+                        self.keyboards.back_keyboard())
+    
     def edit_server_ip(self, admin_id, server_key, text):
         """Изменение IP сервера"""
         if not self.is_admin(admin_id):
@@ -1106,6 +1129,15 @@ class HostileRustVKBot:
         
         if admin_id in self.user_states:
             del self.user_states[admin_id]
+    
+    def start_edit_server_wipe(self, admin_id, server_key):
+        """Начало изменения интервала вайпа"""
+        if not self.is_admin(admin_id):
+            return
+        
+        self.user_states[admin_id] = f'edit_server_wipe_{server_key}'
+        self.send_message(admin_id, "🔄 Введите новый интервал вайпа в неделях (1 или 2):", 
+                        self.keyboards.back_keyboard())
     
     def edit_server_wipe(self, admin_id, server_key, text):
         """Изменение интервала вайпа"""
@@ -1136,18 +1168,8 @@ class HostileRustVKBot:
         if not self.is_admin(admin_id):
             return
         
-        message = "👑 АДМИН-ПАНЕЛЬ\n\n"
-        message += f"📊 Статистика бота\n"
-        message += f"👥 Управление пользователями\n"
-        message += f"🎁 Управление промокодами\n"
-        message += f"📩 Управление тикетами\n"
-        message += f"📢 Рассылка сообщений\n"
-        message += f"👑 Управление админами\n"
-        message += f"🔧 Редактирование серверов\n"
-        message += f"📈 Статистика промокодов\n\n"
-        message += "Выберите действие:"
-        
-        self.send_message(admin_id, message, self.keyboards.admin_keyboard())
+        self.send_message(admin_id, "👑 АДМИН-ПАНЕЛЬ\n\nВыберите действие:", 
+                        self.keyboards.admin_keyboard())
     
     def show_stats(self, admin_id):
         """Статистика"""
