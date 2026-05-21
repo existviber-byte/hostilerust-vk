@@ -17,7 +17,7 @@ PROMO_EXPIRATION_DAYS = 30
 # Настройки серверов
 SERVERS = {
     'x5': {
-        'name': 'Hostile Rust [x5]',
+        'name': 'Hostile Rust [x2]',
         'ip': '37.230.137.6:20600',
         'rcon_ip': '37.230.137.6',
         'rcon_port': 20601,
