@@ -25,8 +25,8 @@ SERVERS = {
     },
     'x100': {
         'name': 'Hostile Rust [x100]',
-        'ip': '78.46.56.22:20500',
-        'rcon_ip': '78.46.56.22',
+        'ip': '116.202.52.158:20500',
+        'rcon_ip': '116.202.52.158',
         'rcon_port': 20501,
         'rcon_password': os.getenv('RCON_PASSWORD_X100', '')
     }
