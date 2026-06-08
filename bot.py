@@ -400,6 +400,8 @@ class HostileRustVKBot:
     
     def show_servers(self, user_id):
         """Информация о серверах"""
+        self.reload_servers_config()
+        
         message = "🎮 СЕРВЕРА HOSTILE RUST\n\n"
         
         for key, server in self.servers_config.items():
@@ -417,7 +419,6 @@ class HostileRustVKBot:
     
     def send_server_ip(self, user_id, server_key):
         """Отправка IP сервера"""
-        # Принудительно перезагружаем конфигурацию перед отправкой
         self.reload_servers_config()
         
         server = self.servers_config.get(server_key)
@@ -426,7 +427,6 @@ class HostileRustVKBot:
     
     def show_server_ips(self, user_id):
         """Показ всех IP для копирования"""
-        # Принудительно перезагружаем конфигурацию перед отправкой
         self.reload_servers_config()
         
         message = "📋 IP СЕРВЕРОВ\n\n"
@@ -460,7 +460,7 @@ class HostileRustVKBot:
         return date.day <= 7 and date.weekday() == 3
     
     def get_next_wipe_date(self, server_key):
-        """Расчет даты следующего вайпа с учетом первого четверга месяца"""
+        """Расчет даты следующего вайпа"""
         server = self.servers_config.get(server_key)
         if not server:
             return None
@@ -468,45 +468,66 @@ class HostileRustVKBot:
         now = datetime.now()
         weeks_interval = server.get('wipe_interval', 1)
         
-        # Находим следующий четверг
-        days_until_thursday = (3 - now.weekday()) % 7
+        # Для x2 сервера (раз в 2 недели)
+        if weeks_interval > 1:
+            # Первый вайп: 18 июня 2026 года в 12:00 МСК
+            first_wipe = datetime(2026, 6, 18, 12, 0, 0)
+            
+            # Если текущая дата раньше первого вайпа
+            if now < first_wipe:
+                # Проверяем, является ли дата первым четвергом месяца
+                if self.is_first_thursday_of_month(first_wipe):
+                    return first_wipe.replace(hour=22, minute=0, second=0, microsecond=0)
+                return first_wipe
+            
+            # Рассчитываем количество прошедших двухнедельных циклов
+            days_since_first = (now - first_wipe).days
+            cycles_passed = days_since_first // 14
+            
+            # Следующий вайп
+            next_wipe = first_wipe + timedelta(weeks=2 * cycles_passed)
+            
+            # Если вайп уже прошел сегодня, берем следующий
+            if next_wipe <= now:
+                next_wipe = first_wipe + timedelta(weeks=2 * (cycles_passed + 1))
+            
+            # Проверяем, является ли дата первым четвергом месяца
+            if self.is_first_thursday_of_month(next_wipe):
+                # Если первый четверг месяца - вайп в 22:00
+                next_wipe = next_wipe.replace(hour=22, minute=0, second=0, microsecond=0)
+            else:
+                # Обычный четверг - вайп в 12:00
+                next_wipe = next_wipe.replace(hour=12, minute=0, second=0, microsecond=0)
+            
+            return next_wipe
         
-        next_thursday = now + timedelta(days=days_until_thursday)
-        
-        # Определяем время вайпа (12:00 обычно, 22:00 в первый четверг месяца)
-        if self.is_first_thursday_of_month(next_thursday):
-            wipe_hour = 22
         else:
-            wipe_hour = 12
-        
-        next_wipe = next_thursday.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
-        
-        # Если сегодня четверг и время вайпа уже прошло
-        if days_until_thursday == 0 and now >= next_wipe:
-            next_thursday = now + timedelta(days=7)
+            # Для x100 сервера (каждую неделю)
+            days_until_thursday = (3 - now.weekday()) % 7
+            if days_until_thursday == 0 and now.hour >= 12:
+                days_until_thursday = 7
+            
+            next_thursday = now + timedelta(days=days_until_thursday)
+            
             if self.is_first_thursday_of_month(next_thursday):
                 wipe_hour = 22
             else:
                 wipe_hour = 12
+            
             next_wipe = next_thursday.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
-        
-        # Для x2 сервера (раз в 2 недели)
-        if weeks_interval > 1:
-            # Проверяем, что это правильная неделя (четная)
-            week_number = next_wipe.isocalendar()[1]
-            if week_number % 2 != 0:
-                next_wipe += timedelta(weeks=1)
+            
+            if days_until_thursday == 0 and now >= next_wipe:
+                next_wipe = next_thursday + timedelta(days=7)
                 if self.is_first_thursday_of_month(next_wipe):
                     wipe_hour = 22
                 else:
                     wipe_hour = 12
                 next_wipe = next_wipe.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
-        
-        return next_wipe
+            
+            return next_wipe
     
     def show_wipe_info(self, user_id):
         """Информация о вайпах"""
-        # Принудительно перезагружаем конфигурацию перед отправкой
         self.reload_servers_config()
         
         now = datetime.now()
@@ -529,7 +550,7 @@ class HostileRustVKBot:
                 
                 emoji = "🔵" if "x2" in server['name'].lower() else "🔴"
                 message += f"{emoji} {server['name']}\n"
-                message += f"📅 Дата: {next_wipe.strftime('%d.%m.%Y')} в {wipe_time} МСК\n"
+                message += f"📅 Дата вайпа: {next_wipe.strftime('%d.%m.%Y')} в {wipe_time} МСК\n"
                 message += f"⏳ До вайпа: {days} д. {hours} ч. {minutes} мин.\n"
                 message += f"🔄 Периодичность: раз в {server.get('wipe_interval', 1)} нед.\n"
                 
@@ -537,6 +558,9 @@ class HostileRustVKBot:
                     message += "⚠️ Это первый четверг месяца — вайп в 22:00!\n"
                 
                 message += "\n"
+        
+        message += "💡 Первый вайп x2 сервера состоялся 18.06.2026 в 12:00\n"
+        message += "🔄 Вайпы x2 сервера проходят строго раз в 14 дней\n"
         
         self.send_message(user_id, message, self.keyboards.back_keyboard())
     
@@ -1116,7 +1140,6 @@ class HostileRustVKBot:
         if not self.is_admin(admin_id):
             return
         
-        # Принудительно перезагружаем конфигурацию
         self.reload_servers_config()
         
         message = "🔧 РЕДАКТОР СЕРВЕРОВ\n\n"
@@ -1136,7 +1159,6 @@ class HostileRustVKBot:
         if not self.is_admin(admin_id):
             return
         
-        # Принудительно перезагружаем конфигурацию
         self.reload_servers_config()
         
         server = self.servers_config.get(server_key)
@@ -1170,7 +1192,7 @@ class HostileRustVKBot:
             old_name = server['name']
             server['name'] = text.strip()
             self.save_servers_config()
-            self.reload_servers_config()  # Принудительно перезагружаем
+            self.reload_servers_config()
             
             log.info(f"📝 Название сервера {server_key} изменено: {old_name} -> {text.strip()}")
             
@@ -1200,7 +1222,6 @@ class HostileRustVKBot:
             old_ip = server['ip']
             new_ip = text.strip()
             
-            # Простая валидация IP:port
             if ':' not in new_ip:
                 self.send_message(admin_id, "❌ Неверный формат IP. Используйте формат: ip:port (например: 5.42.211.191:35000)")
                 if admin_id in self.user_states:
@@ -1209,7 +1230,7 @@ class HostileRustVKBot:
             
             server['ip'] = new_ip
             self.save_servers_config()
-            self.reload_servers_config()  # Принудительно перезагружаем
+            self.reload_servers_config()
             
             log.info(f"🌐 IP сервера {server_key} изменен: {old_ip} -> {new_ip}")
             
@@ -1247,7 +1268,7 @@ class HostileRustVKBot:
                 old_interval = server['wipe_interval']
                 server['wipe_interval'] = interval
                 self.save_servers_config()
-                self.reload_servers_config()  # Принудительно перезагружаем
+                self.reload_servers_config()
                 
                 log.info(f"🔄 Интервал вайпа сервера {server_key} изменен: {old_interval} -> {interval} нед.")
                 
