@@ -117,7 +117,7 @@ class HostileRustVKBot:
             },
             "x100": {
                 "name": "HOSTILE RUST | x100 | CLANS",
-                "ip": "78.46.56.22:20500",
+                "ip": "5.42.211.191:35000",
                 "wipe_interval": 1,
                 "description": "Сервер x100, вайп каждую неделю"
             }
