@@ -559,8 +559,8 @@ class HostileRustVKBot:
                 
                 message += "\n"
         
-        message += "💡 Первый вайп x2 сервера состоялся 18.06.2026 в 12:00\n"
         message += "🔄 Вайпы x2 сервера проходят строго раз в 14 дней\n"
+        message += "🔄 Вайпы x100 сервера проходят строго раз в 7 дней\n"
         
         self.send_message(user_id, message, self.keyboards.back_keyboard())
     
