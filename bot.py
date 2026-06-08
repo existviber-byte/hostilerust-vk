@@ -53,6 +53,7 @@ class HostileRustVKBot:
         
         log.info("✅ VK Бот Hostile Rust запущен!")
         log.info(f"👑 Администраторы: {self.admin_ids}")
+        log.info(f"🎮 Загружено серверов: {len(self.servers_config)}")
     
     def load_admins(self):
         """Загрузка списка админов из файла"""
@@ -88,6 +89,7 @@ class HostileRustVKBot:
         
         with open(ADMIN_FILE, 'w', encoding='utf-8') as f:
             json.dump(self.admin_ids, f, indent=2, ensure_ascii=False)
+        log.info("💾 Список администраторов сохранен")
     
     def load_servers_config(self):
         """Загрузка конфигурации серверов из файла"""
@@ -99,6 +101,7 @@ class HostileRustVKBot:
                 with open(SERVERS_FILE, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                     if config:
+                        log.info("✅ Конфигурация серверов загружена из файла")
                         return config
         except (json.JSONDecodeError, FileNotFoundError) as e:
             log.error(f"❌ Ошибка загрузки servers.json: {e}")
@@ -137,6 +140,17 @@ class HostileRustVKBot:
         
         with open(SERVERS_FILE, 'w', encoding='utf-8') as f:
             json.dump(self.servers_config, f, indent=2, ensure_ascii=False)
+        log.info("💾 Конфигурация серверов сохранена")
+    
+    def reload_servers_config(self):
+        """Принудительная перезагрузка конфигурации серверов из файла"""
+        try:
+            self.servers_config = self.load_servers_config()
+            log.info("🔄 Конфигурация серверов принудительно перезагружена")
+            return True
+        except Exception as e:
+            log.error(f"❌ Ошибка перезагрузки конфигурации серверов: {e}")
+            return False
     
     def is_admin(self, user_id):
         """Проверка, является ли пользователь админом"""
@@ -403,12 +417,18 @@ class HostileRustVKBot:
     
     def send_server_ip(self, user_id, server_key):
         """Отправка IP сервера"""
+        # Принудительно перезагружаем конфигурацию перед отправкой
+        self.reload_servers_config()
+        
         server = self.servers_config.get(server_key)
         if server:
             self.send_message(user_id, f"📋 IP {server['name']}:\n{server['ip']}")
     
     def show_server_ips(self, user_id):
         """Показ всех IP для копирования"""
+        # Принудительно перезагружаем конфигурацию перед отправкой
+        self.reload_servers_config()
+        
         message = "📋 IP СЕРВЕРОВ\n\n"
         for key, server in self.servers_config.items():
             message += f"{server['name']}:\n{server['ip']}\n\n"
@@ -486,6 +506,9 @@ class HostileRustVKBot:
     
     def show_wipe_info(self, user_id):
         """Информация о вайпах"""
+        # Принудительно перезагружаем конфигурацию перед отправкой
+        self.reload_servers_config()
+        
         now = datetime.now()
         
         message = "💣 ИНФОРМАЦИЯ О ВАЙПАХ\n\n"
@@ -1093,6 +1116,9 @@ class HostileRustVKBot:
         if not self.is_admin(admin_id):
             return
         
+        # Принудительно перезагружаем конфигурацию
+        self.reload_servers_config()
+        
         message = "🔧 РЕДАКТОР СЕРВЕРОВ\n\n"
         message += "Выберите сервер для редактирования:\n\n"
         
@@ -1109,6 +1135,9 @@ class HostileRustVKBot:
         """Начало редактирования сервера"""
         if not self.is_admin(admin_id):
             return
+        
+        # Принудительно перезагружаем конфигурацию
+        self.reload_servers_config()
         
         server = self.servers_config.get(server_key)
         if not server:
@@ -1138,9 +1167,15 @@ class HostileRustVKBot:
         
         server = self.servers_config.get(server_key)
         if server:
+            old_name = server['name']
             server['name'] = text.strip()
             self.save_servers_config()
-            self.send_message(admin_id, f"✅ Название сервера изменено на: {text.strip()}", 
+            self.reload_servers_config()  # Принудительно перезагружаем
+            
+            log.info(f"📝 Название сервера {server_key} изменено: {old_name} -> {text.strip()}")
+            
+            self.send_message(admin_id, f"✅ Название сервера изменено на: {text.strip()}\n\n"
+                             f"💡 Теперь новая информация будет отображаться всем пользователям.", 
                             self.keyboards.admin_keyboard())
         
         if admin_id in self.user_states:
@@ -1152,7 +1187,7 @@ class HostileRustVKBot:
             return
         
         self.user_states[admin_id] = f'edit_server_ip_{server_key}'
-        self.send_message(admin_id, "🌐 Введите новый IP адрес сервера:", 
+        self.send_message(admin_id, "🌐 Введите новый IP адрес сервера (формат: ip:port):", 
                         self.keyboards.back_keyboard())
     
     def edit_server_ip(self, admin_id, server_key, text):
@@ -1162,9 +1197,24 @@ class HostileRustVKBot:
         
         server = self.servers_config.get(server_key)
         if server:
-            server['ip'] = text.strip()
+            old_ip = server['ip']
+            new_ip = text.strip()
+            
+            # Простая валидация IP:port
+            if ':' not in new_ip:
+                self.send_message(admin_id, "❌ Неверный формат IP. Используйте формат: ip:port (например: 5.42.211.191:35000)")
+                if admin_id in self.user_states:
+                    del self.user_states[admin_id]
+                return
+            
+            server['ip'] = new_ip
             self.save_servers_config()
-            self.send_message(admin_id, f"✅ IP сервера изменен на: {text.strip()}", 
+            self.reload_servers_config()  # Принудительно перезагружаем
+            
+            log.info(f"🌐 IP сервера {server_key} изменен: {old_ip} -> {new_ip}")
+            
+            self.send_message(admin_id, f"✅ IP сервера изменен на: {new_ip}\n\n"
+                             f"💡 Теперь новая информация будет отображаться всем пользователям.", 
                             self.keyboards.admin_keyboard())
         
         if admin_id in self.user_states:
@@ -1186,17 +1236,26 @@ class HostileRustVKBot:
         
         try:
             interval = int(text.strip())
-            if interval < 1:
-                raise ValueError
+            if interval < 1 or interval > 2:
+                self.send_message(admin_id, "❌ Интервал должен быть 1 или 2 недели")
+                if admin_id in self.user_states:
+                    del self.user_states[admin_id]
+                return
             
             server = self.servers_config.get(server_key)
             if server:
+                old_interval = server['wipe_interval']
                 server['wipe_interval'] = interval
                 self.save_servers_config()
-                self.send_message(admin_id, f"✅ Интервал вайпа изменен на: {interval} нед.", 
+                self.reload_servers_config()  # Принудительно перезагружаем
+                
+                log.info(f"🔄 Интервал вайпа сервера {server_key} изменен: {old_interval} -> {interval} нед.")
+                
+                self.send_message(admin_id, f"✅ Интервал вайпа изменен на: {interval} нед.\n\n"
+                                 f"💡 Теперь новая информация будет отображаться всем пользователям.", 
                                 self.keyboards.admin_keyboard())
         except ValueError:
-            self.send_message(admin_id, "❌ Введите число больше 0")
+            self.send_message(admin_id, "❌ Введите число 1 или 2")
         finally:
             if admin_id in self.user_states:
                 del self.user_states[admin_id]
