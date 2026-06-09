@@ -31,39 +31,20 @@ class HostileRustVKBot:
         log.info("ЗАПУСК VK БОТА HOSTILE RUST")
         log.info("="*50)
         
-        # База данных
         self.db = Database()
-        
-        # VK API
         self.vk = vk_api.VkApi(token=TOKEN)
         self.longpoll = VkLongPoll(self.vk)
         self.vk_api = self.vk.get_api()
-        
-        # Клавиатуры
         self.keyboards = Keyboards()
-        
-        # Состояния пользователей
         self.user_states = {}
-        
-        # Временные данные для заметок
         self.temp_notes = {}
         
-        # Загружаем список админов из файла
         self.admin_ids = self.load_admins()
-        
-        # Загружаем конфигурацию серверов
         self.servers_config = self.load_servers_config()
-        
-        # Загружаем заметки
         self.load_notes()
-        
-        # Загружаем подписчиков на уведомления о вайпах
         self.load_wipe_subscribers()
         
-        # Запускаем проверку напоминаний
         self.start_reminder_checker()
-        
-        # Запускаем проверку вайпов
         self.start_wipe_checker()
         
         log.info("✅ VK Бот Hostile Rust запущен!")
@@ -75,7 +56,6 @@ class HostileRustVKBot:
     # ========== ЗАГРУЗКА ПОДПИСЧИКОВ ==========
     
     def load_wipe_subscribers(self):
-        """Загрузка списка подписчиков на уведомления о вайпах"""
         DATA_DIR = Path("data")
         SUBSCRIBERS_FILE = DATA_DIR / "wipe_subscribers.json"
         
@@ -94,10 +74,8 @@ class HostileRustVKBot:
             self.save_wipe_subscribers()
     
     def save_wipe_subscribers(self):
-        """Сохранение списка подписчиков на уведомления о вайпах"""
         DATA_DIR = Path("data")
         SUBSCRIBERS_FILE = DATA_DIR / "wipe_subscribers.json"
-        
         with open(SUBSCRIBERS_FILE, 'w', encoding='utf-8') as f:
             json.dump(self.wipe_subscribers, f, indent=2, ensure_ascii=False)
         log.info("💾 Подписчики на вайпы сохранены")
@@ -105,36 +83,28 @@ class HostileRustVKBot:
     # ========== ПРОВЕРКА ВАЙПОВ ==========
     
     def start_wipe_checker(self):
-        """Запуск фоновой проверки вайпов"""
         def check_wipes():
             last_notified = {}
-            
             while True:
                 try:
                     now = datetime.now()
-                    
                     for server_key, server in self.servers_config.items():
                         next_wipe = self.get_next_wipe_date(server_key)
                         if not next_wipe:
                             continue
                         
-                        # Проверяем за час до вайпа
                         time_until_wipe = (next_wipe - now).total_seconds()
                         hours_until = time_until_wipe / 3600
-                        
-                        # Создаем ключ для отслеживания отправки
                         notify_key = f"{server_key}_{next_wipe.strftime('%Y%m%d')}"
                         
-                        # Если до вайпа осталось меньше часа и больше 50 минут, и еще не отправляли
                         if 0.8 <= hours_until <= 1.1 and last_notified.get(notify_key) != True:
-                            # Отправляем уведомление всем подписчикам
                             server_name = server['name']
                             is_first_thursday = self.is_first_thursday_of_month(next_wipe)
                             wipe_time = "22:00 МСК" if is_first_thursday else "12:00 МСК"
                             
-                            message = f"⚠️ **ВНИМАНИЕ!**\n\n"
-                            message += f"🎮 **{server_name}**\n"
-                            message += f"💣 Вайп через **1 час**!\n"
+                            message = f"⚠️ ВНИМАНИЕ!\n\n"
+                            message += f"🎮 {server_name}\n"
+                            message += f"💣 Вайп через 1 час!\n"
                             message += f"📅 {next_wipe.strftime('%d.%m.%Y')}\n"
                             message += f"⏰ Время: {wipe_time}\n\n"
                             message += f"🔄 Не забудьте подготовиться!"
@@ -149,22 +119,15 @@ class HostileRustVKBot:
                             last_notified[notify_key] = True
                             log.info(f"🔔 Отправлены уведомления о вайпе через час для {server_name}")
                     
-                    # Очищаем старые записи (старше 2 дней)
-                    for key in list(last_notified.keys()):
-                        if len(key) > 0:
-                            pass  # Простая очистка при следующем запуске
-                    
                 except Exception as e:
                     log.error(f"❌ Ошибка проверки вайпов: {e}")
-                
-                time.sleep(60)  # Проверяем каждую минуту
+                time.sleep(60)
         
         wipe_thread = threading.Thread(target=check_wipes, daemon=True)
         wipe_thread.start()
         log.info("⏰ Запущена проверка вайпов")
     
     def load_notes(self):
-        """Загрузка заметок из файла"""
         DATA_DIR = Path("data")
         NOTES_FILE = DATA_DIR / "admin_notes.json"
         
@@ -183,16 +146,13 @@ class HostileRustVKBot:
             self.save_notes()
     
     def save_notes(self):
-        """Сохранение заметок в файл"""
         DATA_DIR = Path("data")
         NOTES_FILE = DATA_DIR / "admin_notes.json"
-        
         with open(NOTES_FILE, 'w', encoding='utf-8') as f:
             json.dump(self.notes, f, indent=2, ensure_ascii=False)
         log.info("💾 Заметки сохранены")
     
     def start_reminder_checker(self):
-        """Запуск фоновой проверки напоминаний"""
         def check_reminders():
             while True:
                 try:
@@ -204,19 +164,17 @@ class HostileRustVKBot:
                             if reminder_time and not note.get('reminded', False):
                                 reminder_dt = datetime.fromisoformat(reminder_time)
                                 if reminder_dt <= now:
-                                    message = f"📝 **НАПОМИНАНИЕ!**\n\n"
-                                    message += f"📌 **{note['title']}**\n\n"
+                                    message = f"📝 НАПОМИНАНИЕ!\n\n"
+                                    message += f"📌 {note['title']}\n\n"
                                     message += f"📄 {note['content']}\n\n"
                                     message += f"⏰ Создано: {note['created_at'][:16]}\n"
                                     message += f"🔔 Напоминание сработало!"
-                                    
                                     self.send_message(admin_id_int, message)
                                     note['reminded'] = True
                                     self.save_notes()
                                     log.info(f"🔔 Отправлено напоминание админу {admin_id}: {note['title']}")
                 except Exception as e:
                     log.error(f"❌ Ошибка проверки напоминаний: {e}")
-                
                 time.sleep(60)
         
         reminder_thread = threading.Thread(target=check_reminders, daemon=True)
@@ -224,7 +182,6 @@ class HostileRustVKBot:
         log.info("⏰ Запущена проверка напоминаний")
     
     def load_admins(self):
-        """Загрузка списка админов из файла"""
         DATA_DIR = Path("data")
         ADMIN_FILE = DATA_DIR / "admins.json"
         
@@ -250,16 +207,13 @@ class HostileRustVKBot:
         return admins
     
     def save_admins(self):
-        """Сохранение списка админов в файл"""
         DATA_DIR = Path("data")
         ADMIN_FILE = DATA_DIR / "admins.json"
-        
         with open(ADMIN_FILE, 'w', encoding='utf-8') as f:
             json.dump(self.admin_ids, f, indent=2, ensure_ascii=False)
         log.info("💾 Список администраторов сохранен")
     
     def load_servers_config(self):
-        """Загрузка конфигурации серверов из файла"""
         DATA_DIR = Path("data")
         SERVERS_FILE = DATA_DIR / "servers.json"
         
@@ -300,16 +254,13 @@ class HostileRustVKBot:
         return servers
     
     def save_servers_config(self):
-        """Сохранение конфигурации серверов в файл"""
         DATA_DIR = Path("data")
         SERVERS_FILE = DATA_DIR / "servers.json"
-        
         with open(SERVERS_FILE, 'w', encoding='utf-8') as f:
             json.dump(self.servers_config, f, indent=2, ensure_ascii=False)
         log.info("💾 Конфигурация серверов сохранена")
     
     def reload_servers_config(self):
-        """Принудительная перезагрузка конфигурации серверов из файла"""
         try:
             self.servers_config = self.load_servers_config()
             log.info("🔄 Конфигурация серверов принудительно перезагружена")
@@ -319,11 +270,9 @@ class HostileRustVKBot:
             return False
     
     def is_admin(self, user_id):
-        """Проверка, является ли пользователь админом"""
         return user_id in self.admin_ids
     
     def send_message(self, user_id, message, keyboard=None, attachment=None):
-        """Отправка сообщения"""
         try:
             params = {
                 'user_id': user_id,
@@ -331,13 +280,10 @@ class HostileRustVKBot:
                 'random_id': get_random_id(),
                 'dont_parse_links': 1
             }
-            
             if keyboard:
                 params['keyboard'] = keyboard.get_keyboard()
-            
             if attachment:
                 params['attachment'] = attachment
-            
             self.vk_api.messages.send(**params)
             return True
         except Exception as e:
@@ -345,15 +291,12 @@ class HostileRustVKBot:
             return False
     
     def send_admin_message(self, message, keyboard=None):
-        """Отправка всем админам"""
         for admin_id in self.admin_ids:
             self.send_message(admin_id, message, keyboard)
     
     def handle_message(self, user_id, text, payload=None):
-        """Обработка сообщений"""
         log.info(f"📨 Сообщение от {user_id}: {text[:50] if text else ''}")
         
-        # Регистрируем пользователя
         try:
             user_info = self.vk_api.users.get(user_ids=user_id)[0]
             first_name = user_info.get('first_name', '')
@@ -362,7 +305,6 @@ class HostileRustVKBot:
         except Exception as e:
             log.error(f"❌ Ошибка регистрации пользователя: {e}")
         
-        # Обработка payload (inline кнопки)
         if payload:
             try:
                 payload = json.loads(payload) if isinstance(payload, str) else payload
@@ -454,7 +396,6 @@ class HostileRustVKBot:
             except Exception as e:
                 log.error(f"❌ Ошибка обработки payload: {e}")
         
-        # Обработка состояний
         if user_id in self.user_states:
             state = self.user_states[user_id]
             
@@ -496,7 +437,6 @@ class HostileRustVKBot:
                 self.create_note_reminder(user_id, text)
                 return
         
-        # Обработка текстовых команд
         if not text:
             return
         
@@ -528,8 +468,6 @@ class HostileRustVKBot:
             self.subscribe_to_wipe(user_id)
         elif text_lower in ['🔕 отписаться от вайпов', 'отписаться от вайпов']:
             self.unsubscribe_from_wipe(user_id)
-        
-        # Админские команды
         elif self.is_admin(user_id):
             if text_lower in ['админ', 'admin']:
                 self.show_admin_menu(user_id)
@@ -559,8 +497,6 @@ class HostileRustVKBot:
                 self.show_notes_menu(user_id)
             else:
                 self.offer_ticket_creation(user_id)
-        
-        # Проверка на ввод промокода
         elif self.check_promo_code(user_id, text):
             pass
         else:
@@ -569,7 +505,6 @@ class HostileRustVKBot:
     # ========== ПОДПИСКА НА УВЕДОМЛЕНИЯ О ВАЙПАХ ==========
     
     def subscribe_to_wipe(self, user_id):
-        """Подписка на уведомления о вайпах"""
         if user_id in self.wipe_subscribers:
             self.send_message(user_id, "🔔 Вы уже подписаны на уведомления о вайпах!")
             return
@@ -577,17 +512,16 @@ class HostileRustVKBot:
         self.wipe_subscribers.append(user_id)
         self.save_wipe_subscribers()
         
-        message = "✅ **Вы подписались на уведомления о вайпах!**\n\n"
-        message += "🔔 Бот будет присылать вам оповещения **за 1 час** до вайпа на серверах:\n"
+        message = "✅ Вы подписались на уведомления о вайпах!\n\n"
+        message += "🔔 Бот будет присылать вам оповещения за 1 час до вайпа на серверах:\n"
         message += "• x2 сервер (раз в 2 недели)\n"
         message += "• x100 сервер (каждую неделю)\n\n"
-        message += "❌ Чтобы отписаться, напишите: **Отписаться от вайпов**"
+        message += "❌ Чтобы отписаться, напишите: Отписаться от вайпов"
         
         self.send_message(user_id, message)
         log.info(f"🔔 Пользователь {user_id} подписался на уведомления о вайпах")
     
     def unsubscribe_from_wipe(self, user_id):
-        """Отписка от уведомлений о вайпах"""
         if user_id not in self.wipe_subscribers:
             self.send_message(user_id, "🔕 Вы не были подписаны на уведомления о вайпах!")
             return
@@ -595,8 +529,8 @@ class HostileRustVKBot:
         self.wipe_subscribers.remove(user_id)
         self.save_wipe_subscribers()
         
-        message = "❌ **Вы отписались от уведомлений о вайпах!**\n\n"
-        message += "Чтобы снова подписаться, напишите: **Подписаться на вайпы**"
+        message = "❌ Вы отписались от уведомлений о вайпах!\n\n"
+        message += "Чтобы снова подписаться, напишите: Подписаться на вайпы"
         
         self.send_message(user_id, message)
         log.info(f"🔕 Пользователь {user_id} отписался от уведомлений о вайпах")
@@ -604,7 +538,6 @@ class HostileRustVKBot:
     # ========== ЗАМЕТКИ ДЛЯ АДМИНОВ ==========
     
     def show_notes_menu(self, admin_id):
-        """Меню заметок для админа"""
         if not self.is_admin(admin_id):
             return
         
@@ -617,7 +550,7 @@ class HostileRustVKBot:
         keyboard.add_button('◀️ Назад в админку', VkKeyboardColor.SECONDARY,
                            payload={'command': 'admin_back'})
         
-        message = "📝 **УПРАВЛЕНИЕ ЗАМЕТКАМИ**\n\n"
+        message = "📝 УПРАВЛЕНИЕ ЗАМЕТКАМИ\n\n"
         message += "Здесь вы можете создавать заметки с напоминаниями.\n"
         message += "Бот сам напомнит вам в указанное время в личные сообщения.\n\n"
         message += "📌 Напоминания можно установить:\n"
@@ -629,16 +562,14 @@ class HostileRustVKBot:
         self.send_message(admin_id, message, keyboard)
     
     def start_create_note(self, admin_id):
-        """Начало создания заметки"""
         if not self.is_admin(admin_id):
             return
         
         self.user_states[admin_id] = 'waiting_note_title'
-        self.send_message(admin_id, "📝 **Создание заметки**\n\nВведите **название** заметки (не более 100 символов):", 
+        self.send_message(admin_id, "📝 Создание заметки\n\nВведите название заметки (не более 100 символов):", 
                          self.keyboards.back_keyboard())
     
     def create_note_title(self, admin_id, title):
-        """Сохранение названия заметки"""
         if not self.is_admin(admin_id):
             return
         
@@ -653,11 +584,10 @@ class HostileRustVKBot:
         self.temp_notes[admin_id] = {'title': title.strip()}
         self.user_states[admin_id] = 'waiting_note_content'
         
-        self.send_message(admin_id, f"✅ Название: **{title}**\n\nТеперь введите **текст** заметки (не более 1000 символов):", 
+        self.send_message(admin_id, f"✅ Название: {title}\n\nТеперь введите текст заметки (не более 1000 символов):", 
                          self.keyboards.back_keyboard())
     
     def create_note_content(self, admin_id, content):
-        """Сохранение текста заметки и запрос времени напоминания"""
         if not self.is_admin(admin_id):
             return
         
@@ -677,18 +607,17 @@ class HostileRustVKBot:
                            payload={'command': 'no_reminder'})
         
         message = "✅ Текст сохранен!\n\n"
-        message += "📌 **Установите время напоминания:**\n\n"
+        message += "📌 Установите время напоминания:\n\n"
         message += "Примеры:\n"
-        message += "• `30m` - через 30 минут\n"
-        message += "• `2h` - через 2 часа\n"
-        message += "• `3d` - через 3 дня\n"
-        message += "• `2024-12-31 23:59` - на конкретную дату\n\n"
-        message += "Или нажмите кнопку **Без напоминания**"
+        message += "• 30m - через 30 минут\n"
+        message += "• 2h - через 2 часа\n"
+        message += "• 3d - через 3 дня\n"
+        message += "• 2024-12-31 23:59 - на конкретную дату\n\n"
+        message += "Или нажмите кнопку Без напоминания"
         
         self.send_message(admin_id, message, keyboard)
     
     def create_note_reminder(self, admin_id, text):
-        """Создание заметки с напоминанием"""
         if not self.is_admin(admin_id):
             return
         
@@ -744,12 +673,11 @@ class HostileRustVKBot:
         
         if admin_id in self.temp_notes:
             del self.temp_notes[admin_id]
-        
         if admin_id in self.user_states:
             del self.user_states[admin_id]
         
-        message = f"✅ **Заметка создана!**\n\n"
-        message += f"📌 **{note['title']}**\n\n"
+        message = f"✅ Заметка создана!\n\n"
+        message += f"📌 {note['title']}\n\n"
         message += f"📄 {note['content']}\n\n"
         message += f"⏰ Напоминание: {reminder_text}\n"
         message += f"🆔 ID заметки: {note_id}"
@@ -758,7 +686,6 @@ class HostileRustVKBot:
         log.info(f"📝 Админ {admin_id} создал заметку #{note_id}: {note['title']}")
     
     def list_notes(self, admin_id):
-        """Список заметок админа"""
         if not self.is_admin(admin_id):
             return
         
@@ -771,11 +698,10 @@ class HostileRustVKBot:
                                payload={'command': 'create_note'})
             keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY,
                                payload={'command': 'admin_back'})
-            
             self.send_message(admin_id, "📭 У вас нет заметок. Создайте первую заметку!", keyboard)
             return
         
-        message = f"📝 **ВАШИ ЗАМЕТКИ** (всего: {len(notes)})\n\n"
+        message = f"📝 ВАШИ ЗАМЕТКИ (всего: {len(notes)})\n\n"
         
         for note in notes[-10:]:
             status = "🔔" if note.get('reminder_time') and not note.get('reminded') else "📌"
@@ -785,7 +711,7 @@ class HostileRustVKBot:
                 if reminder_dt > datetime.now():
                     reminder_info = f" (напомнить: {reminder_dt.strftime('%d.%m %H:%M')})"
             
-            message += f"{status} **#{note['id']}** - {note['title']}{reminder_info}\n"
+            message += f"{status} #{note['id']} - {note['title']}{reminder_info}\n"
             message += f"   📄 {note['content'][:50]}...\n\n"
         
         keyboard = VkKeyboard(inline=True)
@@ -806,7 +732,6 @@ class HostileRustVKBot:
         self.send_message(admin_id, message, keyboard)
     
     def view_note(self, admin_id, note_id):
-        """Просмотр конкретной заметки"""
         if not self.is_admin(admin_id):
             return
         
@@ -815,21 +740,21 @@ class HostileRustVKBot:
         
         for note in notes:
             if note['id'] == note_id:
-                message = f"📌 **ЗАМЕТКА #{note_id}**\n\n"
-                message += f"**Название:** {note['title']}\n\n"
-                message += f"**Текст:**\n{note['content']}\n\n"
-                message += f"**Создано:** {note['created_at'][:16]}\n"
+                message = f"📌 ЗАМЕТКА #{note_id}\n\n"
+                message += f"Название: {note['title']}\n\n"
+                message += f"Текст:\n{note['content']}\n\n"
+                message += f"Создано: {note['created_at'][:16]}\n"
                 
                 if note.get('reminder_time') and not note.get('reminded'):
                     reminder_dt = datetime.fromisoformat(note['reminder_time'])
                     if reminder_dt > datetime.now():
-                        message += f"**Напоминание:** {reminder_dt.strftime('%d.%m.%Y %H:%M')}\n"
+                        message += f"Напоминание: {reminder_dt.strftime('%d.%m.%Y %H:%M')}\n"
                     else:
-                        message += f"**Напоминание:** Ожидает отправки\n"
+                        message += f"Напоминание: Ожидает отправки\n"
                 elif note.get('reminded'):
-                    message += f"**Напоминание:** ✅ Отправлено\n"
+                    message += f"Напоминание: ✅ Отправлено\n"
                 else:
-                    message += f"**Напоминание:** Не установлено\n"
+                    message += f"Напоминание: Не установлено\n"
                 
                 keyboard = VkKeyboard(inline=True)
                 keyboard.add_button('🗑 Удалить', VkKeyboardColor.NEGATIVE,
@@ -846,7 +771,6 @@ class HostileRustVKBot:
         self.send_message(admin_id, f"❌ Заметка #{note_id} не найдена!")
     
     def delete_note(self, admin_id, note_id):
-        """Удаление заметки"""
         if not self.is_admin(admin_id):
             return
         
@@ -861,9 +785,8 @@ class HostileRustVKBot:
                     n['id'] = j + 1
                 self.save_notes()
                 
-                self.send_message(admin_id, f"✅ Заметка **#{note_id} - {title}** удалена!")
+                self.send_message(admin_id, f"✅ Заметка #{note_id} - {title} удалена!")
                 log.info(f"🗑 Админ {admin_id} удалил заметку #{note_id}")
-                
                 self.list_notes(admin_id)
                 return
         
@@ -872,7 +795,6 @@ class HostileRustVKBot:
     # ========== ОСТАЛЬНЫЕ МЕТОДЫ ==========
     
     def show_main_menu(self, user_id):
-        """Главное меню"""
         try:
             user_info = self.vk_api.users.get(user_ids=user_id)[0]
             name = user_info['first_name']
@@ -880,13 +802,9 @@ class HostileRustVKBot:
         except:
             welcome = "🔥 Добро пожаловать в Hostile Rust!\n\nВыберите действие:"
         
-        # Добавляем кнопки подписки в главное меню
-        keyboard = self.keyboards.main_keyboard()
-        
-        self.send_message(user_id, welcome, keyboard)
+        self.send_message(user_id, welcome, self.keyboards.main_keyboard())
     
     def show_promocodes(self, user_id):
-        """Показ доступных промокодов"""
         DATA_DIR = Path("data")
         DATA_PROMO = DATA_DIR / "promocodes.json"
         
@@ -908,7 +826,6 @@ class HostileRustVKBot:
         self.send_message(user_id, message, self.keyboards.back_keyboard())
     
     def show_servers(self, user_id):
-        """Информация о серверах"""
         self.reload_servers_config()
         
         message = "🎮 СЕРВЕРА HOSTILE RUST\n\n"
@@ -924,36 +841,28 @@ class HostileRustVKBot:
         message += "2. В игре нажмите F1\n"
         message += "3. Введите: client.connect IP\n"
         
-        # Добавляем информацию о подписке
         if user_id in self.wipe_subscribers:
             message += "\n🔔 Вы подписаны на уведомления о вайпах"
         else:
-            message += "\n🔕 Напишите **Подписаться на вайпы**, чтобы получать уведомления за час до вайпа"
+            message += "\n🔕 Напишите Подписаться на вайпы, чтобы получать уведомления за час до вайпа"
         
         self.send_message(user_id, message, self.keyboards.servers_keyboard())
     
     def send_server_ip(self, user_id, server_key):
-        """Отправка IP сервера"""
         self.reload_servers_config()
-        
         server = self.servers_config.get(server_key)
         if server:
             self.send_message(user_id, f"📋 IP {server['name']}:\n{server['ip']}")
     
     def show_server_ips(self, user_id):
-        """Показ всех IP для копирования"""
         self.reload_servers_config()
-        
         message = "📋 IP СЕРВЕРОВ\n\n"
         for key, server in self.servers_config.items():
             message += f"{server['name']}:\n{server['ip']}\n\n"
-        
         self.send_message(user_id, message, self.keyboards.back_keyboard())
     
     def show_rules(self, user_id):
-        """Правила сервера"""
         rules_text = "📜 ПРАВИЛА HOSTILE RUST\n\n"
-        
         for part in RULES:
             if len(rules_text) + len(part) + 2 > 4000:
                 self.send_message(user_id, rules_text)
@@ -966,16 +875,13 @@ class HostileRustVKBot:
             self.send_message(user_id, rules_text, self.keyboards.back_keyboard())
     
     def show_shop(self, user_id):
-        """Магазин"""
         message = f"🛒 МАГАЗИН HOSTILE RUST\n\n{SHOP_URL}\n\n💡 Перейдите по ссылке для пополнения баланса!"
         self.send_message(user_id, message, self.keyboards.back_keyboard())
     
     def is_first_thursday_of_month(self, date):
-        """Проверка, является ли четверг первым в месяце"""
         return date.day <= 7 and date.weekday() == 3
     
     def get_next_wipe_date(self, server_key):
-        """Расчет даты следующего вайпа"""
         server = self.servers_config.get(server_key)
         if not server:
             return None
@@ -983,7 +889,7 @@ class HostileRustVKBot:
         now = datetime.now()
         weeks_interval = server.get('wipe_interval', 1)
         
-        if weeks_interval > 1:  # x2 сервер (раз в 2 недели)
+        if weeks_interval > 1:
             first_wipe = datetime(2026, 6, 18, 12, 0, 0)
             
             if now < first_wipe:
@@ -993,7 +899,6 @@ class HostileRustVKBot:
             
             days_since_first = (now - first_wipe).days
             cycles_passed = days_since_first // 14
-            
             next_wipe = first_wipe + timedelta(weeks=2 * cycles_passed)
             
             if next_wipe <= now:
@@ -1005,7 +910,7 @@ class HostileRustVKBot:
                 next_wipe = next_wipe.replace(hour=12, minute=0, second=0, microsecond=0)
             
             return next_wipe
-        else:  # x100 сервер (каждую неделю)
+        else:
             days_until_thursday = (3 - now.weekday()) % 7
             if days_until_thursday == 0 and now.hour >= 12:
                 days_until_thursday = 7
@@ -1030,9 +935,7 @@ class HostileRustVKBot:
             return next_wipe
     
     def show_wipe_info(self, user_id):
-        """Информация о вайпах"""
         self.reload_servers_config()
-        
         now = datetime.now()
         
         message = "💣 ИНФОРМАЦИЯ О ВАЙПАХ\n\n"
@@ -1050,8 +953,8 @@ class HostileRustVKBot:
                 
                 is_first = self.is_first_thursday_of_month(next_wipe)
                 wipe_time = "22:00" if is_first else "12:00"
-                
                 emoji = "🔵" if "x2" in server['name'].lower() else "🔴"
+                
                 message += f"{emoji} {server['name']}\n"
                 message += f"📅 Дата вайпа: {next_wipe.strftime('%d.%m.%Y')} в {wipe_time} МСК\n"
                 message += f"⏳ До вайпа: {days} д. {hours} ч. {minutes} мин.\n"
@@ -1059,7 +962,6 @@ class HostileRustVKBot:
                 
                 if is_first:
                     message += "⚠️ Это первый четверг месяца — вайп в 22:00!\n"
-                
                 message += "\n"
         
         message += "🔄 Вайпы x2 сервера проходят строго раз в 14 дней\n"
@@ -1067,14 +969,13 @@ class HostileRustVKBot:
         
         if user_id in self.wipe_subscribers:
             message += "🔔 Вы подписаны на уведомления о вайпах (за час)\n"
-            message += "❌ Отписаться: **Отписаться от вайпов**"
+            message += "❌ Отписаться: Отписаться от вайпов"
         else:
-            message += "🔕 Подписаться на уведомления: **Подписаться на вайпы**"
+            message += "🔕 Подписаться на уведомления: Подписаться на вайпы"
         
         self.send_message(user_id, message, self.keyboards.back_keyboard())
     
     def offer_ticket_creation(self, user_id):
-        """Предложение создать тикет при неизвестном сообщении"""
         keyboard = VkKeyboard(inline=True)
         keyboard.add_button('🎫 Создать тикет', VkKeyboardColor.POSITIVE, 
                            payload={'command': 'create_ticket_from_unknown'})
@@ -1090,7 +991,6 @@ class HostileRustVKBot:
     # ========== ТИКЕТЫ ==========
     
     def show_tickets_menu(self, user_id):
-        """Меню тикетов"""
         session = self.db.get_session()
         try:
             user = session.query(User).filter_by(vk_id=user_id).first()
@@ -1106,7 +1006,6 @@ class HostileRustVKBot:
         self.send_message(user_id, message, self.keyboards.tickets_keyboard())
     
     def start_ticket_creation(self, user_id):
-        """Начало создания тикета"""
         session = self.db.get_session()
         try:
             user = session.query(User).filter_by(vk_id=user_id).first()
@@ -1125,7 +1024,6 @@ class HostileRustVKBot:
         self.send_message(user_id, "📝 Опишите ваш вопрос подробно:", self.keyboards.back_keyboard())
     
     def create_ticket(self, user_id, text):
-        """Создание тикета"""
         if len(text) < 10:
             self.send_message(user_id, "❌ Слишком короткое описание", self.keyboards.back_keyboard())
             return
@@ -1154,7 +1052,6 @@ class HostileRustVKBot:
         self.send_admin_message(admin_msg, keyboard)
     
     def show_my_tickets(self, user_id):
-        """Мои тикеты"""
         session = self.db.get_session()
         try:
             user = session.query(User).filter_by(vk_id=user_id).first()
@@ -1178,7 +1075,6 @@ class HostileRustVKBot:
             session.close()
     
     def show_admin_tickets(self, admin_id):
-        """Админ: все открытые тикеты"""
         if not self.is_admin(admin_id):
             return
         
@@ -1194,125 +1090,91 @@ class HostileRustVKBot:
             
             for t in tickets[:10]:
                 user_name = f"{t.user.first_name} {t.user.last_name}" if t.user else f"id{t.user_id}"
-                
-                message = f"🟢 ТИКЕТ #{t.id}\n"
-                message += f"👤 От: {user_name}\n"
-                message += f"📅 {t.created_at.strftime('%d.%m.%Y %H:%M')}\n"
-                message += f"📝 {t.title}\n"
-                
+                message = f"🟢 ТИКЕТ #{t.id}\n👤 От: {user_name}\n📅 {t.created_at.strftime('%d.%m.%Y %H:%M')}\n📝 {t.title}\n"
                 keyboard = VkKeyboard(inline=True)
                 keyboard.add_button('✏️ Ответить', VkKeyboardColor.PRIMARY,
                                   payload={'command': f'ticket_answer_{t.id}'})
                 keyboard.add_button('❌ Закрыть', VkKeyboardColor.NEGATIVE,
                                   payload={'command': f'admin_close_{t.id}'})
-                
                 self.send_message(admin_id, message, keyboard)
             
             if len(tickets) > 10:
                 self.send_message(admin_id, f"... и еще {len(tickets) - 10} тикетов")
-                
         finally:
             session.close()
     
     def show_open_tickets_for_close(self, admin_id):
-        """Показ тикетов для закрытия"""
         if not self.is_admin(admin_id):
             return
         
         session = self.db.get_session()
         try:
             tickets = session.query(Ticket).filter_by(status='open').order_by(Ticket.created_at.desc()).limit(10).all()
-            
             if not tickets:
                 self.send_message(admin_id, "✅ Нет открытых тикетов", self.keyboards.admin_keyboard())
                 return
             
             keyboard = VkKeyboard(inline=True)
-            
             for t in tickets:
                 user_name = f"{t.user.first_name} {t.user.last_name}" if t.user else f"id{t.user_id}"
-                keyboard.add_button(f'❌ Закрыть #{t.id} ({user_name[:15]}...)', 
-                                  VkKeyboardColor.NEGATIVE,
+                keyboard.add_button(f'❌ Закрыть #{t.id} ({user_name[:15]}...)', VkKeyboardColor.NEGATIVE,
                                   payload={'command': f'admin_close_{t.id}'})
                 keyboard.add_line()
-            
-            keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY,
-                              payload={'command': 'admin_back'})
-            
+            keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY, payload={'command': 'admin_back'})
             self.send_message(admin_id, "📋 Выберите тикет для закрытия:", keyboard)
         finally:
             session.close()
     
     def start_ticket_answer(self, admin_id, ticket_id):
-        """Начало ответа на тикет"""
         if not self.is_admin(admin_id):
             return
-        
         self.user_states[admin_id] = f'ticket_reply_{ticket_id}'
-        self.send_message(admin_id, f"✏️ Введите ответ на тикет #{ticket_id}:", 
-                        self.keyboards.back_keyboard())
+        self.send_message(admin_id, f"✏️ Введите ответ на тикет #{ticket_id}:", self.keyboards.back_keyboard())
     
     def reply_to_ticket(self, admin_id, ticket_id, text):
-        """Ответ на тикет"""
         if not self.is_admin(admin_id):
             return
         
         session = self.db.get_session()
         try:
             ticket = session.query(Ticket).filter_by(id=ticket_id).first()
-            
             if not ticket:
                 self.send_message(admin_id, "❌ Тикет не найден")
                 return
-            
             if ticket.status == 'closed':
                 self.send_message(admin_id, "❌ Тикет уже закрыт")
                 return
             
             user_id = ticket.user.vk_id
-            
-            msg = TicketMessage(
-                ticket_id=ticket_id,
-                user_id=admin_id,
-                message=text,
-                is_admin=True
-            )
+            msg = TicketMessage(ticket_id=ticket_id, user_id=admin_id, message=text, is_admin=True)
             session.add(msg)
             session.commit()
-            
         finally:
             session.close()
         
         self.send_message(user_id, f"📩 ОТВЕТ НА ТИКЕТ #{ticket_id}\n\n👑 Администратор:\n{text}")
-        
         if admin_id in self.user_states:
             del self.user_states[admin_id]
-        
         self.send_message(admin_id, f"✅ Ответ отправлен!", self.keyboards.admin_keyboard())
     
     def close_ticket_admin(self, admin_id, ticket_id):
-        """Закрытие тикета администратором"""
         if not self.is_admin(admin_id):
             return
         
         session = self.db.get_session()
         try:
             ticket = session.query(Ticket).filter_by(id=ticket_id).first()
-            
             if not ticket:
                 self.send_message(admin_id, "❌ Тикет не найден")
                 return
-            
             if ticket.status == 'closed':
                 self.send_message(admin_id, "❌ Тикет уже закрыт")
                 return
             
             user_id = ticket.user.vk_id
-            
             ticket.status = 'closed'
             ticket.closed_at = datetime.now()
             session.commit()
-            
         finally:
             session.close()
         
@@ -1322,10 +1184,8 @@ class HostileRustVKBot:
     # ========== ПРОМОКОДЫ ==========
     
     def check_promo_code(self, user_id, text):
-        """Проверка ввода промокода"""
         DATA_DIR = Path("data")
         DATA_PROMO = DATA_DIR / "promocodes.json"
-        
         if not DATA_PROMO.exists():
             return False
         
@@ -1342,11 +1202,8 @@ class HostileRustVKBot:
                 try:
                     user = session.query(User).filter_by(vk_id=user_id).first()
                     promo_obj = session.query(PromoCode).filter_by(code=code).first()
-                    
                     if user and promo_obj:
-                        used = session.query(PromoUsage).filter_by(
-                            user_id=user.id, promo_id=promo_obj.id
-                        ).first()
+                        used = session.query(PromoUsage).filter_by(user_id=user.id, promo_id=promo_obj.id).first()
                         if used:
                             self.send_message(user_id, "❌ Вы уже использовали этот промокод")
                             return True
@@ -1354,26 +1211,21 @@ class HostileRustVKBot:
                     session.close()
                 
                 self.db.record_promo_usage(user_id, code)
-                
                 self.send_message(user_id, f"🎁 Промокод активирован!\n\n🔑 {code}\n\n💡 Активируйте в магазине:\n{SHOP_URL}")
                 return True
         return False
     
     def start_add_promo(self, admin_id):
-        """Начало добавления промокода"""
         if not self.is_admin(admin_id):
             return
-        
         self.user_states[admin_id] = 'waiting_promo_add'
         self.send_message(admin_id, "➕ Введите новый промокод:", self.keyboards.back_keyboard())
     
     def add_promo(self, admin_id, code):
-        """Добавление промокода"""
         if not self.is_admin(admin_id):
             return
         
         code = code.strip().upper()
-        
         DATA_DIR = Path("data")
         DATA_DIR.mkdir(exist_ok=True)
         DATA_PROMO = DATA_DIR / "promocodes.json"
@@ -1387,25 +1239,20 @@ class HostileRustVKBot:
                 promos = []
         
         promos.append({"code": code, "date": datetime.now().isoformat()})
-        
         with open(DATA_PROMO, 'w', encoding='utf-8') as f:
             json.dump(promos, f, indent=2, ensure_ascii=False)
         
         self.db.add_promo(code, "Промокод")
-        
         if admin_id in self.user_states:
             del self.user_states[admin_id]
-        
         self.send_message(admin_id, f"✅ Промокод {code} добавлен!", self.keyboards.admin_keyboard())
     
     def show_promo_list(self, admin_id):
-        """Список промокодов"""
         if not self.is_admin(admin_id):
             return
         
         DATA_DIR = Path("data")
         DATA_PROMO = DATA_DIR / "promocodes.json"
-        
         promos = []
         if DATA_PROMO.exists():
             try:
@@ -1422,17 +1269,14 @@ class HostileRustVKBot:
         for p in promos:
             code = p["code"] if isinstance(p, dict) else p
             message += f"🎫 {code}\n"
-        
         self.send_message(admin_id, message, self.keyboards.admin_keyboard())
     
     def show_promo_list_for_delete(self, admin_id):
-        """Список промокодов для удаления"""
         if not self.is_admin(admin_id):
             return
         
         DATA_DIR = Path("data")
         DATA_PROMO = DATA_DIR / "promocodes.json"
-        
         promos = []
         if DATA_PROMO.exists():
             try:
@@ -1446,26 +1290,20 @@ class HostileRustVKBot:
             return
         
         keyboard = VkKeyboard(inline=True)
-        
         for p in promos[:10]:
             code = p["code"] if isinstance(p, dict) else p
             keyboard.add_button(f'🗑 {code}', VkKeyboardColor.NEGATIVE,
                               payload={'command': f'confirm_delete_promo_{code}'})
             keyboard.add_line()
-        
-        keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY,
-                          payload={'command': 'admin_back'})
-        
+        keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY, payload={'command': 'admin_back'})
         self.send_message(admin_id, "➖ Выберите промокод для удаления:", keyboard)
     
     def delete_promo(self, admin_id, code):
-        """Удаление промокода"""
         if not self.is_admin(admin_id):
             return
         
         DATA_DIR = Path("data")
         DATA_PROMO = DATA_DIR / "promocodes.json"
-        
         promos = []
         if DATA_PROMO.exists():
             try:
@@ -1482,44 +1320,33 @@ class HostileRustVKBot:
         
         with open(DATA_PROMO, 'w', encoding='utf-8') as f:
             json.dump(new_promos, f, indent=2, ensure_ascii=False)
-        
         self.send_message(admin_id, f"✅ Промокод {code} удален!", self.keyboards.admin_keyboard())
     
     def show_promo_stats(self, admin_id):
-        """Статистика использования промокодов"""
         if not self.is_admin(admin_id):
             return
         
         session = self.db.get_session()
         try:
-            recent_usages = session.query(PromoUsage).order_by(
-                PromoUsage.used_at.desc()
-            ).limit(10).all()
-            
-            message = "📈 СТАТИСТИКА ПРОМОКОДОВ\n\n"
-            message += "🕒 ПОСЛЕДНИЕ АКТИВАЦИИ:\n"
+            recent_usages = session.query(PromoUsage).order_by(PromoUsage.used_at.desc()).limit(10).all()
+            message = "📈 СТАТИСТИКА ПРОМОКОДОВ\n\n🕒 ПОСЛЕДНИЕ АКТИВАЦИИ:\n"
             
             if recent_usages:
                 for usage in recent_usages:
                     user = session.query(User).filter_by(id=usage.user_id).first()
                     promo = session.query(PromoCode).filter_by(id=usage.promo_id).first()
-                    
                     if user and promo:
                         try:
                             user_info = self.vk_api.users.get(user_ids=user.vk_id)[0]
                             user_name = f"{user_info['first_name']} {user_info['last_name']}"
                         except:
                             user_name = f"id{user.vk_id}"
-                        
-                        message += f"• {user_name}\n"
-                        message += f"  Код: {promo.code}\n"
-                        message += f"  Дата: {usage.used_at.strftime('%d.%m.%Y %H:%M')}\n\n"
+                        message += f"• {user_name}\n  Код: {promo.code}\n  Дата: {usage.used_at.strftime('%d.%m.%Y %H:%M')}\n\n"
             else:
                 message += "Нет активаций\n"
             
             total_usages = session.query(PromoUsage).count()
             message += f"\n📊 ВСЕГО АКТИВАЦИЙ: {total_usages}"
-            
         finally:
             session.close()
         
@@ -1528,13 +1355,10 @@ class HostileRustVKBot:
     # ========== УПРАВЛЕНИЕ АДМИНАМИ ==========
     
     def show_admin_management(self, admin_id):
-        """Показ меню управления админами"""
         if not self.is_admin(admin_id):
             return
         
-        message = "👑 УПРАВЛЕНИЕ АДМИНИСТРАТОРАМИ\n\n"
-        message += "📋 ТЕКУЩИЕ АДМИНЫ:\n"
-        
+        message = "👑 УПРАВЛЕНИЕ АДМИНИСТРАТОРАМИ\n\n📋 ТЕКУЩИЕ АДМИНЫ:\n"
         for aid in self.admin_ids:
             try:
                 user_info = self.vk_api.users.get(user_ids=aid)[0]
@@ -1543,27 +1367,20 @@ class HostileRustVKBot:
             except:
                 message += f"• id{aid}\n"
         
-        keyboard = self.keyboards.admin_management_keyboard()
-        
-        self.send_message(admin_id, message, keyboard)
+        self.send_message(admin_id, message, self.keyboards.admin_management_keyboard())
     
     def start_add_admin_flow(self, admin_id):
-        """Начало процесса добавления админа"""
         if not self.is_admin(admin_id):
             return
-        
         self.user_states[admin_id] = 'waiting_add_admin'
-        self.send_message(admin_id, "➕ Введите ID пользователя ВК для добавления в админы:", 
-                        self.keyboards.back_keyboard())
+        self.send_message(admin_id, "➕ Введите ID пользователя ВК для добавления в админы:", self.keyboards.back_keyboard())
     
     def process_add_admin(self, admin_id, text):
-        """Обработка добавления админа"""
         if not self.is_admin(admin_id):
             return
         
         try:
             new_admin_id = int(text.strip())
-            
             try:
                 user_info = self.vk_api.users.get(user_ids=new_admin_id)[0]
                 user_name = f"{user_info['first_name']} {user_info['last_name']}"
@@ -1581,12 +1398,8 @@ class HostileRustVKBot:
             
             self.admin_ids.append(new_admin_id)
             self.save_admins()
-            
-            self.send_message(admin_id, f"✅ {user_name} (id{new_admin_id}) добавлен в администраторы!", 
-                            self.keyboards.admin_keyboard())
-            
+            self.send_message(admin_id, f"✅ {user_name} (id{new_admin_id}) добавлен в администраторы!", self.keyboards.admin_keyboard())
             self.send_message(new_admin_id, "🎉 Поздравляем! Вы назначены администратором Hostile Rust!")
-            
         except ValueError:
             self.send_message(admin_id, "❌ Неверный ID. Введите числовой ID пользователя")
         finally:
@@ -1594,12 +1407,10 @@ class HostileRustVKBot:
                 del self.user_states[admin_id]
     
     def start_remove_admin_flow(self, admin_id):
-        """Начало процесса удаления админа"""
         if not self.is_admin(admin_id):
             return
         
         keyboard = VkKeyboard(inline=True)
-        
         for aid in self.admin_ids:
             if aid != admin_id:
                 try:
@@ -1610,21 +1421,16 @@ class HostileRustVKBot:
                     keyboard.add_line()
                 except:
                     pass
-        
-        keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY,
-                          payload={'command': 'admin_manage_admins'})
-        
+        keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY, payload={'command': 'admin_manage_admins'})
         self.send_message(admin_id, "➖ Выберите админа для удаления:", keyboard)
     
     def remove_admin(self, admin_id, remove_admin_id):
-        """Удаление админа"""
         if not self.is_admin(admin_id):
             return
         
         if remove_admin_id not in self.admin_ids:
             self.send_message(admin_id, "❌ Этот пользователь не администратор")
             return
-        
         if remove_admin_id == admin_id:
             self.send_message(admin_id, "❌ Нельзя удалить самого себя")
             return
@@ -1638,132 +1444,82 @@ class HostileRustVKBot:
         except:
             user_name = f"id{remove_admin_id}"
         
-        self.send_message(admin_id, f"✅ {user_name} удален из администраторов!", 
-                        self.keyboards.admin_keyboard())
+        self.send_message(admin_id, f"✅ {user_name} удален из администраторов!", self.keyboards.admin_keyboard())
         self.send_message(remove_admin_id, "ℹ️ Вы были удалены из администраторов Hostile Rust")
     
     # ========== РЕДАКТИРОВАНИЕ СЕРВЕРОВ ==========
     
     def show_servers_editor(self, admin_id):
-        """Показ редактора серверов"""
         if not self.is_admin(admin_id):
             return
-        
         self.reload_servers_config()
-        
-        message = "🔧 РЕДАКТОР СЕРВЕРОВ\n\n"
-        message += "Выберите сервер для редактирования:\n\n"
-        
+        message = "🔧 РЕДАКТОР СЕРВЕРОВ\n\nВыберите сервер для редактирования:\n\n"
         for key, server in self.servers_config.items():
-            message += f"🟢 {server['name']}\n"
-            message += f"   IP: {server['ip']}\n"
-            message += f"   Вайп: раз в {server.get('wipe_interval', 1)} нед.\n\n"
-        
-        keyboard = self.keyboards.servers_editor_keyboard(self.servers_config)
-        
-        self.send_message(admin_id, message, keyboard)
+            message += f"🟢 {server['name']}\n   IP: {server['ip']}\n   Вайп: раз в {server.get('wipe_interval', 1)} нед.\n\n"
+        self.send_message(admin_id, message, self.keyboards.servers_editor_keyboard(self.servers_config))
     
     def start_edit_server(self, admin_id, server_key):
-        """Начало редактирования сервера"""
         if not self.is_admin(admin_id):
             return
-        
         self.reload_servers_config()
-        
         server = self.servers_config.get(server_key)
         if not server:
             self.send_message(admin_id, "❌ Сервер не найден")
             return
-        
-        keyboard = self.keyboards.server_edit_options_keyboard(server_key)
-        
-        message = f"✏️ РЕДАКТИРОВАНИЕ: {server['name']}\n\n"
-        message += "Что хотите изменить?"
-        
-        self.send_message(admin_id, message, keyboard)
+        self.send_message(admin_id, f"✏️ РЕДАКТИРОВАНИЕ: {server['name']}\n\nЧто хотите изменить?", 
+                         self.keyboards.server_edit_options_keyboard(server_key))
     
     def start_edit_server_name(self, admin_id, server_key):
-        """Начало изменения названия сервера"""
         if not self.is_admin(admin_id):
             return
-        
         self.user_states[admin_id] = f'edit_server_name_{server_key}'
-        self.send_message(admin_id, "📝 Введите новое название сервера:", 
-                        self.keyboards.back_keyboard())
+        self.send_message(admin_id, "📝 Введите новое название сервера:", self.keyboards.back_keyboard())
     
     def edit_server_name(self, admin_id, server_key, text):
-        """Изменение названия сервера"""
         if not self.is_admin(admin_id):
             return
-        
         server = self.servers_config.get(server_key)
         if server:
-            old_name = server['name']
             server['name'] = text.strip()
             self.save_servers_config()
             self.reload_servers_config()
-            
-            log.info(f"📝 Название сервера {server_key} изменено: {old_name} -> {text.strip()}")
-            
-            self.send_message(admin_id, f"✅ Название сервера изменено на: {text.strip()}\n\n"
-                             f"💡 Теперь новая информация будет отображаться всем пользователям.", 
-                            self.keyboards.admin_keyboard())
-        
+            self.send_message(admin_id, f"✅ Название сервера изменено на: {text.strip()}", self.keyboards.admin_keyboard())
         if admin_id in self.user_states:
             del self.user_states[admin_id]
     
     def start_edit_server_ip(self, admin_id, server_key):
-        """Начало изменения IP сервера"""
         if not self.is_admin(admin_id):
             return
-        
         self.user_states[admin_id] = f'edit_server_ip_{server_key}'
-        self.send_message(admin_id, "🌐 Введите новый IP адрес сервера (формат: ip:port):", 
-                        self.keyboards.back_keyboard())
+        self.send_message(admin_id, "🌐 Введите новый IP адрес сервера (формат: ip:port):", self.keyboards.back_keyboard())
     
     def edit_server_ip(self, admin_id, server_key, text):
-        """Изменение IP сервера"""
         if not self.is_admin(admin_id):
             return
-        
         server = self.servers_config.get(server_key)
         if server:
-            old_ip = server['ip']
             new_ip = text.strip()
-            
             if ':' not in new_ip:
                 self.send_message(admin_id, "❌ Неверный формат IP. Используйте формат: ip:port (например: 5.42.211.191:35000)")
                 if admin_id in self.user_states:
                     del self.user_states[admin_id]
                 return
-            
             server['ip'] = new_ip
             self.save_servers_config()
             self.reload_servers_config()
-            
-            log.info(f"🌐 IP сервера {server_key} изменен: {old_ip} -> {new_ip}")
-            
-            self.send_message(admin_id, f"✅ IP сервера изменен на: {new_ip}\n\n"
-                             f"💡 Теперь новая информация будет отображаться всем пользователям.", 
-                            self.keyboards.admin_keyboard())
-        
+            self.send_message(admin_id, f"✅ IP сервера изменен на: {new_ip}", self.keyboards.admin_keyboard())
         if admin_id in self.user_states:
             del self.user_states[admin_id]
     
     def start_edit_server_wipe(self, admin_id, server_key):
-        """Начало изменения интервала вайпа"""
         if not self.is_admin(admin_id):
             return
-        
         self.user_states[admin_id] = f'edit_server_wipe_{server_key}'
-        self.send_message(admin_id, "🔄 Введите новый интервал вайпа в неделях (1 или 2):", 
-                        self.keyboards.back_keyboard())
+        self.send_message(admin_id, "🔄 Введите новый интервал вайпа в неделях (1 или 2):", self.keyboards.back_keyboard())
     
     def edit_server_wipe(self, admin_id, server_key, text):
-        """Изменение интервала вайпа"""
         if not self.is_admin(admin_id):
             return
-        
         try:
             interval = int(text.strip())
             if interval < 1 or interval > 2:
@@ -1771,19 +1527,12 @@ class HostileRustVKBot:
                 if admin_id in self.user_states:
                     del self.user_states[admin_id]
                 return
-            
             server = self.servers_config.get(server_key)
             if server:
-                old_interval = server['wipe_interval']
                 server['wipe_interval'] = interval
                 self.save_servers_config()
                 self.reload_servers_config()
-                
-                log.info(f"🔄 Интервал вайпа сервера {server_key} изменен: {old_interval} -> {interval} нед.")
-                
-                self.send_message(admin_id, f"✅ Интервал вайпа изменен на: {interval} нед.\n\n"
-                                 f"💡 Теперь новая информация будет отображаться всем пользователям.", 
-                                self.keyboards.admin_keyboard())
+                self.send_message(admin_id, f"✅ Интервал вайпа изменен на: {interval} нед.", self.keyboards.admin_keyboard())
         except ValueError:
             self.send_message(admin_id, "❌ Введите число 1 или 2")
         finally:
@@ -1793,18 +1542,13 @@ class HostileRustVKBot:
     # ========== АДМИНСКИЕ ФУНКЦИИ ==========
     
     def show_admin_menu(self, admin_id):
-        """Админ-панель"""
         if not self.is_admin(admin_id):
             return
-        
-        self.send_message(admin_id, "👑 АДМИН-ПАНЕЛЬ\n\nВыберите действие:", 
-                        self.keyboards.admin_keyboard())
+        self.send_message(admin_id, "👑 АДМИН-ПАНЕЛЬ\n\nВыберите действие:", self.keyboards.admin_keyboard())
     
     def show_stats(self, admin_id):
-        """Статистика"""
         if not self.is_admin(admin_id):
             return
-        
         session = self.db.get_session()
         try:
             users_count = session.query(User).count()
@@ -1815,47 +1559,29 @@ class HostileRustVKBot:
         finally:
             session.close()
         
-        message = f"📊 СТАТИСТИКА\n\n"
-        message += f"👥 Пользователей: {users_count}\n"
-        message += f"👑 Администраторов: {len(self.admin_ids)}\n"
-        message += f"🎮 Серверов: {len(self.servers_config)}\n"
-        message += f"🎁 Активных промокодов: {promos_count}\n"
-        message += f"📈 Использований промокодов: {usage_count}\n"
-        message += f"🎫 Тикетов (открыто/закрыто): {tickets_open}/{tickets_closed}\n"
-        message += f"🔔 Подписчиков на вайпы: {len(self.wipe_subscribers)}"
-        
+        message = f"📊 СТАТИСТИКА\n\n👥 Пользователей: {users_count}\n👑 Администраторов: {len(self.admin_ids)}\n🎮 Серверов: {len(self.servers_config)}\n🎁 Активных промокодов: {promos_count}\n📈 Использований промокодов: {usage_count}\n🎫 Тикетов (открыто/закрыто): {tickets_open}/{tickets_closed}\n🔔 Подписчиков на вайпы: {len(self.wipe_subscribers)}"
         self.send_message(admin_id, message, self.keyboards.admin_keyboard())
     
     def show_users_list(self, admin_id):
-        """Список пользователей"""
         if not self.is_admin(admin_id):
             return
-        
         users = self.db.get_all_users()
         message = f"👥 ПОЛЬЗОВАТЕЛИ (всего: {len(users)})\n\n"
-        
         for user in users[:20]:
             is_admin = "👑" if user.vk_id in self.admin_ids else "👤"
-            message += f"{is_admin} @id{user.vk_id} ({user.first_name} {user.last_name})\n"
-            message += f"  📅 {user.registered_at.strftime('%d.%m.%Y')}\n"
-        
+            message += f"{is_admin} @id{user.vk_id} ({user.first_name} {user.last_name})\n  📅 {user.registered_at.strftime('%d.%m.%Y')}\n"
         self.send_message(admin_id, message, self.keyboards.admin_keyboard())
     
     def start_broadcast(self, admin_id):
-        """Начало рассылки"""
         if not self.is_admin(admin_id):
             return
-        
         users = self.db.get_all_users()
         self.user_states[admin_id] = 'waiting_broadcast'
-        self.send_message(admin_id, f"📢 Введите текст рассылки\n(будет отправлено {len(users)} пользователям):", 
-                        self.keyboards.back_keyboard())
+        self.send_message(admin_id, f"📢 Введите текст рассылки\n(будет отправлено {len(users)} пользователям):", self.keyboards.back_keyboard())
     
     def send_broadcast(self, admin_id, text):
-        """Отправка рассылки"""
         if not self.is_admin(admin_id):
             return
-        
         users = self.db.get_all_users()
         
         def broadcast():
@@ -1867,21 +1593,15 @@ class HostileRustVKBot:
                     time.sleep(0.34)
                 except Exception as e:
                     log.error(f"Ошибка отправки {user.vk_id}: {e}")
-            
-            self.send_message(admin_id, f"✅ Рассылка завершена!\nОтправлено: {sent}", 
-                            self.keyboards.admin_keyboard())
+            self.send_message(admin_id, f"✅ Рассылка завершена!\nОтправлено: {sent}", self.keyboards.admin_keyboard())
         
         threading.Thread(target=broadcast, daemon=True).start()
-        
         if admin_id in self.user_states:
             del self.user_states[admin_id]
-        
         self.send_message(admin_id, "⏳ Рассылка запущена...")
     
     def run(self):
-        """Запуск бота"""
         log.info("✅ БОТ ЗАПУЩЕН И ГОТОВ К РАБОТЕ!")
-        
         while True:
             try:
                 for event in self.longpoll.listen():
@@ -1892,13 +1612,7 @@ class HostileRustVKBot:
                                 payload = event.payload
                         except:
                             pass
-                        
-                        threading.Thread(
-                            target=self.handle_message,
-                            args=(event.user_id, event.text, payload),
-                            daemon=True
-                        ).start()
-            
+                        threading.Thread(target=self.handle_message, args=(event.user_id, event.text, payload), daemon=True).start()
             except Exception as e:
                 log.error(f"❌ Ошибка в главном цикле: {e}")
                 time.sleep(5)
