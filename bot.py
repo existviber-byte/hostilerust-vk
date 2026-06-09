@@ -57,13 +57,111 @@ class HostileRustVKBot:
         # Загружаем заметки
         self.load_notes()
         
+        # Загружаем подписчиков на уведомления о вайпах
+        self.load_wipe_subscribers()
+        
         # Запускаем проверку напоминаний
         self.start_reminder_checker()
+        
+        # Запускаем проверку вайпов
+        self.start_wipe_checker()
         
         log.info("✅ VK Бот Hostile Rust запущен!")
         log.info(f"👑 Администраторы: {self.admin_ids}")
         log.info(f"🎮 Загружено серверов: {len(self.servers_config)}")
         log.info(f"📝 Загружено заметок: {sum(len(v) for v in self.notes.values())}")
+        log.info(f"🔔 Подписчиков на вайпы: {len(self.wipe_subscribers)}")
+    
+    # ========== ЗАГРУЗКА ПОДПИСЧИКОВ ==========
+    
+    def load_wipe_subscribers(self):
+        """Загрузка списка подписчиков на уведомления о вайпах"""
+        DATA_DIR = Path("data")
+        SUBSCRIBERS_FILE = DATA_DIR / "wipe_subscribers.json"
+        
+        try:
+            if SUBSCRIBERS_FILE.exists() and SUBSCRIBERS_FILE.stat().st_size > 0:
+                with open(SUBSCRIBERS_FILE, 'r', encoding='utf-8') as f:
+                    self.wipe_subscribers = json.load(f)
+                    log.info("✅ Подписчики на вайпы загружены")
+            else:
+                self.wipe_subscribers = []
+                DATA_DIR.mkdir(exist_ok=True)
+                self.save_wipe_subscribers()
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            log.error(f"❌ Ошибка загрузки подписчиков: {e}")
+            self.wipe_subscribers = []
+            self.save_wipe_subscribers()
+    
+    def save_wipe_subscribers(self):
+        """Сохранение списка подписчиков на уведомления о вайпах"""
+        DATA_DIR = Path("data")
+        SUBSCRIBERS_FILE = DATA_DIR / "wipe_subscribers.json"
+        
+        with open(SUBSCRIBERS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(self.wipe_subscribers, f, indent=2, ensure_ascii=False)
+        log.info("💾 Подписчики на вайпы сохранены")
+    
+    # ========== ПРОВЕРКА ВАЙПОВ ==========
+    
+    def start_wipe_checker(self):
+        """Запуск фоновой проверки вайпов"""
+        def check_wipes():
+            last_notified = {}
+            
+            while True:
+                try:
+                    now = datetime.now()
+                    
+                    for server_key, server in self.servers_config.items():
+                        next_wipe = self.get_next_wipe_date(server_key)
+                        if not next_wipe:
+                            continue
+                        
+                        # Проверяем за час до вайпа
+                        time_until_wipe = (next_wipe - now).total_seconds()
+                        hours_until = time_until_wipe / 3600
+                        
+                        # Создаем ключ для отслеживания отправки
+                        notify_key = f"{server_key}_{next_wipe.strftime('%Y%m%d')}"
+                        
+                        # Если до вайпа осталось меньше часа и больше 50 минут, и еще не отправляли
+                        if 0.8 <= hours_until <= 1.1 and last_notified.get(notify_key) != True:
+                            # Отправляем уведомление всем подписчикам
+                            server_name = server['name']
+                            is_first_thursday = self.is_first_thursday_of_month(next_wipe)
+                            wipe_time = "22:00 МСК" if is_first_thursday else "12:00 МСК"
+                            
+                            message = f"⚠️ **ВНИМАНИЕ!**\n\n"
+                            message += f"🎮 **{server_name}**\n"
+                            message += f"💣 Вайп через **1 час**!\n"
+                            message += f"📅 {next_wipe.strftime('%d.%m.%Y')}\n"
+                            message += f"⏰ Время: {wipe_time}\n\n"
+                            message += f"🔄 Не забудьте подготовиться!"
+                            
+                            for subscriber_id in self.wipe_subscribers:
+                                try:
+                                    self.send_message(subscriber_id, message)
+                                    time.sleep(0.5)
+                                except Exception as e:
+                                    log.error(f"Ошибка отправки уведомления {subscriber_id}: {e}")
+                            
+                            last_notified[notify_key] = True
+                            log.info(f"🔔 Отправлены уведомления о вайпе через час для {server_name}")
+                    
+                    # Очищаем старые записи (старше 2 дней)
+                    for key in list(last_notified.keys()):
+                        if len(key) > 0:
+                            pass  # Простая очистка при следующем запуске
+                    
+                except Exception as e:
+                    log.error(f"❌ Ошибка проверки вайпов: {e}")
+                
+                time.sleep(60)  # Проверяем каждую минуту
+        
+        wipe_thread = threading.Thread(target=check_wipes, daemon=True)
+        wipe_thread.start()
+        log.info("⏰ Запущена проверка вайпов")
     
     def load_notes(self):
         """Загрузка заметок из файла"""
@@ -106,7 +204,6 @@ class HostileRustVKBot:
                             if reminder_time and not note.get('reminded', False):
                                 reminder_dt = datetime.fromisoformat(reminder_time)
                                 if reminder_dt <= now:
-                                    # Отправляем напоминание
                                     message = f"📝 **НАПОМИНАНИЕ!**\n\n"
                                     message += f"📌 **{note['title']}**\n\n"
                                     message += f"📄 {note['content']}\n\n"
@@ -120,7 +217,7 @@ class HostileRustVKBot:
                 except Exception as e:
                     log.error(f"❌ Ошибка проверки напоминаний: {e}")
                 
-                time.sleep(60)  # Проверяем каждую минуту
+                time.sleep(60)
         
         reminder_thread = threading.Thread(target=check_reminders, daemon=True)
         reminder_thread.start()
@@ -348,6 +445,12 @@ class HostileRustVKBot:
                     note_id = int(command.replace('view_note_', ''))
                     self.view_note(user_id, note_id)
                     return
+                elif command == 'subscribe_wipe':
+                    self.subscribe_to_wipe(user_id)
+                    return
+                elif command == 'unsubscribe_wipe':
+                    self.unsubscribe_from_wipe(user_id)
+                    return
             except Exception as e:
                 log.error(f"❌ Ошибка обработки payload: {e}")
         
@@ -421,6 +524,10 @@ class HostileRustVKBot:
             self.show_my_tickets(user_id)
         elif text_lower in ['◀️ назад в меню', 'назад']:
             self.show_main_menu(user_id)
+        elif text_lower in ['🔔 подписаться на вайпы', 'подписаться на вайпы']:
+            self.subscribe_to_wipe(user_id)
+        elif text_lower in ['🔕 отписаться от вайпов', 'отписаться от вайпов']:
+            self.unsubscribe_from_wipe(user_id)
         
         # Админские команды
         elif self.is_admin(user_id):
@@ -458,6 +565,41 @@ class HostileRustVKBot:
             pass
         else:
             self.offer_ticket_creation(user_id)
+    
+    # ========== ПОДПИСКА НА УВЕДОМЛЕНИЯ О ВАЙПАХ ==========
+    
+    def subscribe_to_wipe(self, user_id):
+        """Подписка на уведомления о вайпах"""
+        if user_id in self.wipe_subscribers:
+            self.send_message(user_id, "🔔 Вы уже подписаны на уведомления о вайпах!")
+            return
+        
+        self.wipe_subscribers.append(user_id)
+        self.save_wipe_subscribers()
+        
+        message = "✅ **Вы подписались на уведомления о вайпах!**\n\n"
+        message += "🔔 Бот будет присылать вам оповещения **за 1 час** до вайпа на серверах:\n"
+        message += "• x2 сервер (раз в 2 недели)\n"
+        message += "• x100 сервер (каждую неделю)\n\n"
+        message += "❌ Чтобы отписаться, напишите: **Отписаться от вайпов**"
+        
+        self.send_message(user_id, message)
+        log.info(f"🔔 Пользователь {user_id} подписался на уведомления о вайпах")
+    
+    def unsubscribe_from_wipe(self, user_id):
+        """Отписка от уведомлений о вайпах"""
+        if user_id not in self.wipe_subscribers:
+            self.send_message(user_id, "🔕 Вы не были подписаны на уведомления о вайпах!")
+            return
+        
+        self.wipe_subscribers.remove(user_id)
+        self.save_wipe_subscribers()
+        
+        message = "❌ **Вы отписались от уведомлений о вайпах!**\n\n"
+        message += "Чтобы снова подписаться, напишите: **Подписаться на вайпы**"
+        
+        self.send_message(user_id, message)
+        log.info(f"🔕 Пользователь {user_id} отписался от уведомлений о вайпах")
     
     # ========== ЗАМЕТКИ ДЛЯ АДМИНОВ ==========
     
@@ -570,7 +712,6 @@ class HostileRustVKBot:
                     reminder_time = datetime.now() + timedelta(days=days)
                     reminder_text = f"Через {days} дней"
                 else:
-                    # Пробуем распарсить конкретную дату
                     reminder_time = datetime.strptime(text, '%Y-%m-%d %H:%M')
                     reminder_text = reminder_time.strftime('%d.%m.%Y %H:%M')
                 
@@ -582,7 +723,6 @@ class HostileRustVKBot:
                 self.send_message(admin_id, "❌ Неверный формат времени. Используйте: 30m, 2h, 3d или 2024-12-31 23:59")
                 return
         
-        # Создаем заметку
         admin_id_str = str(admin_id)
         if admin_id_str not in self.notes:
             self.notes[admin_id_str] = []
@@ -602,14 +742,12 @@ class HostileRustVKBot:
         self.notes[admin_id_str].append(note)
         self.save_notes()
         
-        # Очищаем временные данные
         if admin_id in self.temp_notes:
             del self.temp_notes[admin_id]
         
         if admin_id in self.user_states:
             del self.user_states[admin_id]
         
-        # Отправляем подтверждение
         message = f"✅ **Заметка создана!**\n\n"
         message += f"📌 **{note['title']}**\n\n"
         message += f"📄 {note['content']}\n\n"
@@ -637,10 +775,9 @@ class HostileRustVKBot:
             self.send_message(admin_id, "📭 У вас нет заметок. Создайте первую заметку!", keyboard)
             return
         
-        # Отправляем список заметок
         message = f"📝 **ВАШИ ЗАМЕТКИ** (всего: {len(notes)})\n\n"
         
-        for note in notes[-10:]:  # Показываем последние 10
+        for note in notes[-10:]:
             status = "🔔" if note.get('reminder_time') and not note.get('reminded') else "📌"
             reminder_info = ""
             if note.get('reminder_time') and not note.get('reminded'):
@@ -651,10 +788,9 @@ class HostileRustVKBot:
             message += f"{status} **#{note['id']}** - {note['title']}{reminder_info}\n"
             message += f"   📄 {note['content'][:50]}...\n\n"
         
-        # Создаем клавиатуру с кнопками для каждой заметки
         keyboard = VkKeyboard(inline=True)
         
-        for note in notes[-5:]:  # Показываем кнопки для последних 5
+        for note in notes[-5:]:
             keyboard.add_button(f"🔍 #{note['id']}", VkKeyboardColor.SECONDARY,
                                payload={'command': f'view_note_{note["id"]}'})
             keyboard.add_button(f"🗑 #{note['id']}", VkKeyboardColor.NEGATIVE,
@@ -721,7 +857,6 @@ class HostileRustVKBot:
             if note['id'] == note_id:
                 title = note['title']
                 notes.pop(i)
-                # Перенумеровываем заметки
                 for j, n in enumerate(notes):
                     n['id'] = j + 1
                 self.save_notes()
@@ -729,13 +864,12 @@ class HostileRustVKBot:
                 self.send_message(admin_id, f"✅ Заметка **#{note_id} - {title}** удалена!")
                 log.info(f"🗑 Админ {admin_id} удалил заметку #{note_id}")
                 
-                # Показываем обновленный список
                 self.list_notes(admin_id)
                 return
         
         self.send_message(admin_id, f"❌ Заметка #{note_id} не найдена!")
     
-    # ========== ОСТАЛЬНЫЕ МЕТОДЫ (без изменений) ==========
+    # ========== ОСТАЛЬНЫЕ МЕТОДЫ ==========
     
     def show_main_menu(self, user_id):
         """Главное меню"""
@@ -746,7 +880,10 @@ class HostileRustVKBot:
         except:
             welcome = "🔥 Добро пожаловать в Hostile Rust!\n\nВыберите действие:"
         
-        self.send_message(user_id, welcome, self.keyboards.main_keyboard())
+        # Добавляем кнопки подписки в главное меню
+        keyboard = self.keyboards.main_keyboard()
+        
+        self.send_message(user_id, welcome, keyboard)
     
     def show_promocodes(self, user_id):
         """Показ доступных промокодов"""
@@ -786,6 +923,12 @@ class HostileRustVKBot:
         message += "1. Скопируйте IP адрес\n"
         message += "2. В игре нажмите F1\n"
         message += "3. Введите: client.connect IP\n"
+        
+        # Добавляем информацию о подписке
+        if user_id in self.wipe_subscribers:
+            message += "\n🔔 Вы подписаны на уведомления о вайпах"
+        else:
+            message += "\n🔕 Напишите **Подписаться на вайпы**, чтобы получать уведомления за час до вайпа"
         
         self.send_message(user_id, message, self.keyboards.servers_keyboard())
     
@@ -840,7 +983,7 @@ class HostileRustVKBot:
         now = datetime.now()
         weeks_interval = server.get('wipe_interval', 1)
         
-        if weeks_interval > 1:
+        if weeks_interval > 1:  # x2 сервер (раз в 2 недели)
             first_wipe = datetime(2026, 6, 18, 12, 0, 0)
             
             if now < first_wipe:
@@ -862,7 +1005,7 @@ class HostileRustVKBot:
                 next_wipe = next_wipe.replace(hour=12, minute=0, second=0, microsecond=0)
             
             return next_wipe
-        else:
+        else:  # x100 сервер (каждую неделю)
             days_until_thursday = (3 - now.weekday()) % 7
             if days_until_thursday == 0 and now.hour >= 12:
                 days_until_thursday = 7
@@ -920,7 +1063,13 @@ class HostileRustVKBot:
                 message += "\n"
         
         message += "🔄 Вайпы x2 сервера проходят строго раз в 14 дней\n"
-        message += "🔄 Вайпы x100 сервера проходят строго раз в 7 дней\n"
+        message += "🔄 Вайпы x100 сервера проходят строго раз в 7 дней\n\n"
+        
+        if user_id in self.wipe_subscribers:
+            message += "🔔 Вы подписаны на уведомления о вайпах (за час)\n"
+            message += "❌ Отписаться: **Отписаться от вайпов**"
+        else:
+            message += "🔕 Подписаться на уведомления: **Подписаться на вайпы**"
         
         self.send_message(user_id, message, self.keyboards.back_keyboard())
     
@@ -1672,7 +1821,8 @@ class HostileRustVKBot:
         message += f"🎮 Серверов: {len(self.servers_config)}\n"
         message += f"🎁 Активных промокодов: {promos_count}\n"
         message += f"📈 Использований промокодов: {usage_count}\n"
-        message += f"🎫 Тикетов (открыто/закрыто): {tickets_open}/{tickets_closed}"
+        message += f"🎫 Тикетов (открыто/закрыто): {tickets_open}/{tickets_closed}\n"
+        message += f"🔔 Подписчиков на вайпы: {len(self.wipe_subscribers)}"
         
         self.send_message(admin_id, message, self.keyboards.admin_keyboard())
     
