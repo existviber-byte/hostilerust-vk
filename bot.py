@@ -45,15 +45,86 @@ class HostileRustVKBot:
         # Состояния пользователей
         self.user_states = {}
         
+        # Временные данные для заметок
+        self.temp_notes = {}
+        
         # Загружаем список админов из файла
         self.admin_ids = self.load_admins()
         
         # Загружаем конфигурацию серверов
         self.servers_config = self.load_servers_config()
         
+        # Загружаем заметки
+        self.load_notes()
+        
+        # Запускаем проверку напоминаний
+        self.start_reminder_checker()
+        
         log.info("✅ VK Бот Hostile Rust запущен!")
         log.info(f"👑 Администраторы: {self.admin_ids}")
         log.info(f"🎮 Загружено серверов: {len(self.servers_config)}")
+        log.info(f"📝 Загружено заметок: {sum(len(v) for v in self.notes.values())}")
+    
+    def load_notes(self):
+        """Загрузка заметок из файла"""
+        DATA_DIR = Path("data")
+        NOTES_FILE = DATA_DIR / "admin_notes.json"
+        
+        try:
+            if NOTES_FILE.exists() and NOTES_FILE.stat().st_size > 0:
+                with open(NOTES_FILE, 'r', encoding='utf-8') as f:
+                    self.notes = json.load(f)
+                    log.info("✅ Заметки загружены")
+            else:
+                self.notes = {}
+                DATA_DIR.mkdir(exist_ok=True)
+                self.save_notes()
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            log.error(f"❌ Ошибка загрузки заметок: {e}")
+            self.notes = {}
+            self.save_notes()
+    
+    def save_notes(self):
+        """Сохранение заметок в файл"""
+        DATA_DIR = Path("data")
+        NOTES_FILE = DATA_DIR / "admin_notes.json"
+        
+        with open(NOTES_FILE, 'w', encoding='utf-8') as f:
+            json.dump(self.notes, f, indent=2, ensure_ascii=False)
+        log.info("💾 Заметки сохранены")
+    
+    def start_reminder_checker(self):
+        """Запуск фоновой проверки напоминаний"""
+        def check_reminders():
+            while True:
+                try:
+                    now = datetime.now()
+                    for admin_id, admin_notes in self.notes.items():
+                        admin_id_int = int(admin_id)
+                        for note in admin_notes:
+                            reminder_time = note.get('reminder_time')
+                            if reminder_time and not note.get('reminded', False):
+                                reminder_dt = datetime.fromisoformat(reminder_time)
+                                if reminder_dt <= now:
+                                    # Отправляем напоминание
+                                    message = f"📝 **НАПОМИНАНИЕ!**\n\n"
+                                    message += f"📌 **{note['title']}**\n\n"
+                                    message += f"📄 {note['content']}\n\n"
+                                    message += f"⏰ Создано: {note['created_at'][:16]}\n"
+                                    message += f"🔔 Напоминание сработало!"
+                                    
+                                    self.send_message(admin_id_int, message)
+                                    note['reminded'] = True
+                                    self.save_notes()
+                                    log.info(f"🔔 Отправлено напоминание админу {admin_id}: {note['title']}")
+                except Exception as e:
+                    log.error(f"❌ Ошибка проверки напоминаний: {e}")
+                
+                time.sleep(60)  # Проверяем каждую минуту
+        
+        reminder_thread = threading.Thread(target=check_reminders, daemon=True)
+        reminder_thread.start()
+        log.info("⏰ Запущена проверка напоминаний")
     
     def load_admins(self):
         """Загрузка списка админов из файла"""
@@ -73,7 +144,6 @@ class HostileRustVKBot:
                 ADMIN_FILE.rename(backup_file)
                 log.info(f"📁 Поврежденный файл сохранен как {backup_file}")
         
-        # Если файла нет или он поврежден, создаем с админами из config
         admins = list(ADMIN_IDS)
         DATA_DIR.mkdir(exist_ok=True)
         with open(ADMIN_FILE, 'w', encoding='utf-8') as f:
@@ -110,7 +180,6 @@ class HostileRustVKBot:
                 SERVERS_FILE.rename(backup_file)
                 log.info(f"📁 Поврежденный файл сохранен как {backup_file}")
         
-        # Если файла нет или он поврежден, создаем с серверами по умолчанию
         servers = {
             "x2": {
                 "name": "HOSTILE RUST | x2 | SOLO/DUO",
@@ -265,6 +334,20 @@ class HostileRustVKBot:
                 elif command == 'admin_back':
                     self.show_admin_menu(user_id)
                     return
+                elif command == 'create_note':
+                    self.start_create_note(user_id)
+                    return
+                elif command == 'list_notes':
+                    self.list_notes(user_id)
+                    return
+                elif command.startswith('delete_note_'):
+                    note_id = int(command.replace('delete_note_', ''))
+                    self.delete_note(user_id, note_id)
+                    return
+                elif command.startswith('view_note_'):
+                    note_id = int(command.replace('view_note_', ''))
+                    self.view_note(user_id, note_id)
+                    return
             except Exception as e:
                 log.error(f"❌ Ошибка обработки payload: {e}")
         
@@ -299,6 +382,15 @@ class HostileRustVKBot:
                 return
             elif state == 'waiting_add_admin':
                 self.process_add_admin(user_id, text)
+                return
+            elif state == 'waiting_note_title':
+                self.create_note_title(user_id, text)
+                return
+            elif state == 'waiting_note_content':
+                self.create_note_content(user_id, text)
+                return
+            elif state == 'waiting_note_reminder':
+                self.create_note_reminder(user_id, text)
                 return
         
         # Обработка текстовых команд
@@ -356,6 +448,8 @@ class HostileRustVKBot:
                 self.show_servers_editor(user_id)
             elif text_lower in ['📈 статистика промокодов']:
                 self.show_promo_stats(user_id)
+            elif text_lower in ['📝 заметки', 'заметки']:
+                self.show_notes_menu(user_id)
             else:
                 self.offer_ticket_creation(user_id)
         
@@ -364,6 +458,284 @@ class HostileRustVKBot:
             pass
         else:
             self.offer_ticket_creation(user_id)
+    
+    # ========== ЗАМЕТКИ ДЛЯ АДМИНОВ ==========
+    
+    def show_notes_menu(self, admin_id):
+        """Меню заметок для админа"""
+        if not self.is_admin(admin_id):
+            return
+        
+        keyboard = VkKeyboard(inline=True)
+        keyboard.add_button('➕ Создать заметку', VkKeyboardColor.PRIMARY, 
+                           payload={'command': 'create_note'})
+        keyboard.add_button('📋 Список заметок', VkKeyboardColor.SECONDARY,
+                           payload={'command': 'list_notes'})
+        keyboard.add_line()
+        keyboard.add_button('◀️ Назад в админку', VkKeyboardColor.SECONDARY,
+                           payload={'command': 'admin_back'})
+        
+        message = "📝 **УПРАВЛЕНИЕ ЗАМЕТКАМИ**\n\n"
+        message += "Здесь вы можете создавать заметки с напоминаниями.\n"
+        message += "Бот сам напомнит вам в указанное время в личные сообщения.\n\n"
+        message += "📌 Напоминания можно установить:\n"
+        message += "• через minutes (например: 30m)\n"
+        message += "• через hours (например: 2h)\n"
+        message += "• через days (например: 3d)\n"
+        message += "• на конкретное время (например: 2024-12-31 23:59)"
+        
+        self.send_message(admin_id, message, keyboard)
+    
+    def start_create_note(self, admin_id):
+        """Начало создания заметки"""
+        if not self.is_admin(admin_id):
+            return
+        
+        self.user_states[admin_id] = 'waiting_note_title'
+        self.send_message(admin_id, "📝 **Создание заметки**\n\nВведите **название** заметки (не более 100 символов):", 
+                         self.keyboards.back_keyboard())
+    
+    def create_note_title(self, admin_id, title):
+        """Сохранение названия заметки"""
+        if not self.is_admin(admin_id):
+            return
+        
+        if not title or len(title.strip()) < 1:
+            self.send_message(admin_id, "❌ Название не может быть пустым. Попробуйте снова:")
+            return
+        
+        if len(title) > 100:
+            self.send_message(admin_id, "❌ Название слишком длинное (максимум 100 символов). Попробуйте снова:")
+            return
+        
+        self.temp_notes[admin_id] = {'title': title.strip()}
+        self.user_states[admin_id] = 'waiting_note_content'
+        
+        self.send_message(admin_id, f"✅ Название: **{title}**\n\nТеперь введите **текст** заметки (не более 1000 символов):", 
+                         self.keyboards.back_keyboard())
+    
+    def create_note_content(self, admin_id, content):
+        """Сохранение текста заметки и запрос времени напоминания"""
+        if not self.is_admin(admin_id):
+            return
+        
+        if not content or len(content.strip()) < 1:
+            self.send_message(admin_id, "❌ Текст не может быть пустым. Попробуйте снова:")
+            return
+        
+        if len(content) > 1000:
+            self.send_message(admin_id, "❌ Текст слишком длинный (максимум 1000 символов). Попробуйте снова:")
+            return
+        
+        self.temp_notes[admin_id]['content'] = content.strip()
+        self.user_states[admin_id] = 'waiting_note_reminder'
+        
+        keyboard = VkKeyboard(inline=True)
+        keyboard.add_button('⏰ Без напоминания', VkKeyboardColor.SECONDARY,
+                           payload={'command': 'no_reminder'})
+        
+        message = "✅ Текст сохранен!\n\n"
+        message += "📌 **Установите время напоминания:**\n\n"
+        message += "Примеры:\n"
+        message += "• `30m` - через 30 минут\n"
+        message += "• `2h` - через 2 часа\n"
+        message += "• `3d` - через 3 дня\n"
+        message += "• `2024-12-31 23:59` - на конкретную дату\n\n"
+        message += "Или нажмите кнопку **Без напоминания**"
+        
+        self.send_message(admin_id, message, keyboard)
+    
+    def create_note_reminder(self, admin_id, text):
+        """Создание заметки с напоминанием"""
+        if not self.is_admin(admin_id):
+            return
+        
+        reminder_time = None
+        reminder_text = "Без напоминания"
+        
+        if text and text.lower() != 'без напоминания':
+            try:
+                text_lower = text.lower().strip()
+                
+                if text_lower.endswith('m'):
+                    minutes = int(text_lower[:-1])
+                    reminder_time = datetime.now() + timedelta(minutes=minutes)
+                    reminder_text = f"Через {minutes} минут"
+                elif text_lower.endswith('h'):
+                    hours = int(text_lower[:-1])
+                    reminder_time = datetime.now() + timedelta(hours=hours)
+                    reminder_text = f"Через {hours} часов"
+                elif text_lower.endswith('d'):
+                    days = int(text_lower[:-1])
+                    reminder_time = datetime.now() + timedelta(days=days)
+                    reminder_text = f"Через {days} дней"
+                else:
+                    # Пробуем распарсить конкретную дату
+                    reminder_time = datetime.strptime(text, '%Y-%m-%d %H:%M')
+                    reminder_text = reminder_time.strftime('%d.%m.%Y %H:%M')
+                
+                if reminder_time and reminder_time <= datetime.now():
+                    self.send_message(admin_id, "❌ Время напоминания должно быть в будущем!")
+                    return
+                    
+            except ValueError:
+                self.send_message(admin_id, "❌ Неверный формат времени. Используйте: 30m, 2h, 3d или 2024-12-31 23:59")
+                return
+        
+        # Создаем заметку
+        admin_id_str = str(admin_id)
+        if admin_id_str not in self.notes:
+            self.notes[admin_id_str] = []
+        
+        note_id = len(self.notes[admin_id_str]) + 1
+        
+        note = {
+            'id': note_id,
+            'title': self.temp_notes[admin_id]['title'],
+            'content': self.temp_notes[admin_id]['content'],
+            'created_at': datetime.now().isoformat(),
+            'reminder_time': reminder_time.isoformat() if reminder_time else None,
+            'reminded': False,
+            'reminder_text': reminder_text
+        }
+        
+        self.notes[admin_id_str].append(note)
+        self.save_notes()
+        
+        # Очищаем временные данные
+        if admin_id in self.temp_notes:
+            del self.temp_notes[admin_id]
+        
+        if admin_id in self.user_states:
+            del self.user_states[admin_id]
+        
+        # Отправляем подтверждение
+        message = f"✅ **Заметка создана!**\n\n"
+        message += f"📌 **{note['title']}**\n\n"
+        message += f"📄 {note['content']}\n\n"
+        message += f"⏰ Напоминание: {reminder_text}\n"
+        message += f"🆔 ID заметки: {note_id}"
+        
+        self.send_message(admin_id, message, self.keyboards.admin_keyboard())
+        log.info(f"📝 Админ {admin_id} создал заметку #{note_id}: {note['title']}")
+    
+    def list_notes(self, admin_id):
+        """Список заметок админа"""
+        if not self.is_admin(admin_id):
+            return
+        
+        admin_id_str = str(admin_id)
+        notes = self.notes.get(admin_id_str, [])
+        
+        if not notes:
+            keyboard = VkKeyboard(inline=True)
+            keyboard.add_button('➕ Создать заметку', VkKeyboardColor.PRIMARY,
+                               payload={'command': 'create_note'})
+            keyboard.add_button('◀️ Назад', VkKeyboardColor.SECONDARY,
+                               payload={'command': 'admin_back'})
+            
+            self.send_message(admin_id, "📭 У вас нет заметок. Создайте первую заметку!", keyboard)
+            return
+        
+        # Отправляем список заметок
+        message = f"📝 **ВАШИ ЗАМЕТКИ** (всего: {len(notes)})\n\n"
+        
+        for note in notes[-10:]:  # Показываем последние 10
+            status = "🔔" if note.get('reminder_time') and not note.get('reminded') else "📌"
+            reminder_info = ""
+            if note.get('reminder_time') and not note.get('reminded'):
+                reminder_dt = datetime.fromisoformat(note['reminder_time'])
+                if reminder_dt > datetime.now():
+                    reminder_info = f" (напомнить: {reminder_dt.strftime('%d.%m %H:%M')})"
+            
+            message += f"{status} **#{note['id']}** - {note['title']}{reminder_info}\n"
+            message += f"   📄 {note['content'][:50]}...\n\n"
+        
+        # Создаем клавиатуру с кнопками для каждой заметки
+        keyboard = VkKeyboard(inline=True)
+        
+        for note in notes[-5:]:  # Показываем кнопки для последних 5
+            keyboard.add_button(f"🔍 #{note['id']}", VkKeyboardColor.SECONDARY,
+                               payload={'command': f'view_note_{note["id"]}'})
+            keyboard.add_button(f"🗑 #{note['id']}", VkKeyboardColor.NEGATIVE,
+                               payload={'command': f'delete_note_{note["id"]}'})
+            keyboard.add_line()
+        
+        keyboard.add_button('➕ Создать заметку', VkKeyboardColor.PRIMARY,
+                           payload={'command': 'create_note'})
+        keyboard.add_line()
+        keyboard.add_button('◀️ Назад в админку', VkKeyboardColor.SECONDARY,
+                           payload={'command': 'admin_back'})
+        
+        self.send_message(admin_id, message, keyboard)
+    
+    def view_note(self, admin_id, note_id):
+        """Просмотр конкретной заметки"""
+        if not self.is_admin(admin_id):
+            return
+        
+        admin_id_str = str(admin_id)
+        notes = self.notes.get(admin_id_str, [])
+        
+        for note in notes:
+            if note['id'] == note_id:
+                message = f"📌 **ЗАМЕТКА #{note_id}**\n\n"
+                message += f"**Название:** {note['title']}\n\n"
+                message += f"**Текст:**\n{note['content']}\n\n"
+                message += f"**Создано:** {note['created_at'][:16]}\n"
+                
+                if note.get('reminder_time') and not note.get('reminded'):
+                    reminder_dt = datetime.fromisoformat(note['reminder_time'])
+                    if reminder_dt > datetime.now():
+                        message += f"**Напоминание:** {reminder_dt.strftime('%d.%m.%Y %H:%M')}\n"
+                    else:
+                        message += f"**Напоминание:** Ожидает отправки\n"
+                elif note.get('reminded'):
+                    message += f"**Напоминание:** ✅ Отправлено\n"
+                else:
+                    message += f"**Напоминание:** Не установлено\n"
+                
+                keyboard = VkKeyboard(inline=True)
+                keyboard.add_button('🗑 Удалить', VkKeyboardColor.NEGATIVE,
+                                   payload={'command': f'delete_note_{note_id}'})
+                keyboard.add_line()
+                keyboard.add_button('◀️ К списку', VkKeyboardColor.SECONDARY,
+                                   payload={'command': 'list_notes'})
+                keyboard.add_button('◀️ В админку', VkKeyboardColor.SECONDARY,
+                                   payload={'command': 'admin_back'})
+                
+                self.send_message(admin_id, message, keyboard)
+                return
+        
+        self.send_message(admin_id, f"❌ Заметка #{note_id} не найдена!")
+    
+    def delete_note(self, admin_id, note_id):
+        """Удаление заметки"""
+        if not self.is_admin(admin_id):
+            return
+        
+        admin_id_str = str(admin_id)
+        notes = self.notes.get(admin_id_str, [])
+        
+        for i, note in enumerate(notes):
+            if note['id'] == note_id:
+                title = note['title']
+                notes.pop(i)
+                # Перенумеровываем заметки
+                for j, n in enumerate(notes):
+                    n['id'] = j + 1
+                self.save_notes()
+                
+                self.send_message(admin_id, f"✅ Заметка **#{note_id} - {title}** удалена!")
+                log.info(f"🗑 Админ {admin_id} удалил заметку #{note_id}")
+                
+                # Показываем обновленный список
+                self.list_notes(admin_id)
+                return
+        
+        self.send_message(admin_id, f"❌ Заметка #{note_id} не найдена!")
+    
+    # ========== ОСТАЛЬНЫЕ МЕТОДЫ (без изменений) ==========
     
     def show_main_menu(self, user_id):
         """Главное меню"""
@@ -468,41 +840,29 @@ class HostileRustVKBot:
         now = datetime.now()
         weeks_interval = server.get('wipe_interval', 1)
         
-        # Для x2 сервера (раз в 2 недели)
         if weeks_interval > 1:
-            # Первый вайп: 18 июня 2026 года в 12:00 МСК
             first_wipe = datetime(2026, 6, 18, 12, 0, 0)
             
-            # Если текущая дата раньше первого вайпа
             if now < first_wipe:
-                # Проверяем, является ли дата первым четвергом месяца
                 if self.is_first_thursday_of_month(first_wipe):
                     return first_wipe.replace(hour=22, minute=0, second=0, microsecond=0)
                 return first_wipe
             
-            # Рассчитываем количество прошедших двухнедельных циклов
             days_since_first = (now - first_wipe).days
             cycles_passed = days_since_first // 14
             
-            # Следующий вайп
             next_wipe = first_wipe + timedelta(weeks=2 * cycles_passed)
             
-            # Если вайп уже прошел сегодня, берем следующий
             if next_wipe <= now:
                 next_wipe = first_wipe + timedelta(weeks=2 * (cycles_passed + 1))
             
-            # Проверяем, является ли дата первым четвергом месяца
             if self.is_first_thursday_of_month(next_wipe):
-                # Если первый четверг месяца - вайп в 22:00
                 next_wipe = next_wipe.replace(hour=22, minute=0, second=0, microsecond=0)
             else:
-                # Обычный четверг - вайп в 12:00
                 next_wipe = next_wipe.replace(hour=12, minute=0, second=0, microsecond=0)
             
             return next_wipe
-        
         else:
-            # Для x100 сервера (каждую неделю)
             days_until_thursday = (3 - now.weekday()) % 7
             if days_until_thursday == 0 and now.hour >= 12:
                 days_until_thursday = 7
