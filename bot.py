@@ -9,6 +9,7 @@ import random
 import threading
 import time
 from pathlib import Path
+import pytz
 
 from config import *
 from database import Database, User, PromoCode, PromoUsage, Ticket, TicketMessage
@@ -31,6 +32,9 @@ class HostileRustVKBot:
         log.info("ЗАПУСК VK БОТА HOSTILE RUST")
         log.info("="*50)
         
+        # Устанавливаем МСК часовой пояс для всего бота
+        self.msk_tz = pytz.timezone('Europe/Moscow')
+        
         self.db = Database()
         self.vk = vk_api.VkApi(token=TOKEN)
         self.longpoll = VkLongPoll(self.vk)
@@ -52,6 +56,7 @@ class HostileRustVKBot:
         log.info(f"🎮 Загружено серверов: {len(self.servers_config)}")
         log.info(f"📝 Загружено заметок: {sum(len(v) for v in self.notes.values())}")
         log.info(f"🔔 Подписчиков на вайпы: {len(self.wipe_subscribers)}")
+        log.info(f"🕐 Часовой пояс: МСК (Europe/Moscow)")
     
     # ========== ЗАГРУЗКА ПОДПИСЧИКОВ ==========
     
@@ -80,14 +85,66 @@ class HostileRustVKBot:
             json.dump(self.wipe_subscribers, f, indent=2, ensure_ascii=False)
         log.info("💾 Подписчики на вайпы сохранены")
     
-    # ========== ПРОВЕРКА ВАЙПОВ ==========
+    # ========== ПРОВЕРКА ВАЙПОВ (МСК) ==========
+    
+    def get_next_wipe_date(self, server_key):
+        """Получение следующей даты вайпа в МСК"""
+        server = self.servers_config.get(server_key)
+        if not server:
+            return None
+        
+        now = datetime.now(self.msk_tz)
+        weeks_interval = server.get('wipe_interval', 1)
+        
+        if weeks_interval > 1:  # x2 сервер (раз в 2 недели)
+            # Находим ближайший четверг
+            days_until_thursday = (3 - now.weekday()) % 7
+            if days_until_thursday == 0 and now.hour >= 12:
+                days_until_thursday = 7
+            
+            next_thursday = now + timedelta(days=days_until_thursday)
+            
+            # Определяем время вайпа (первый четверг месяца - 22:00, иначе 12:00)
+            is_first_thursday = (next_thursday.day <= 7)
+            wipe_hour = 22 if is_first_thursday else 12
+            
+            wipe_date = next_thursday.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
+            
+            # Для x2 сервера: вайп только по четным неделям (относительно 06.02.2025)
+            epoch = datetime(2025, 2, 6, 12, 0, 0, tzinfo=self.msk_tz)
+            weeks_since_epoch = (wipe_date - epoch).days // 7
+            
+            if weeks_since_epoch % 2 == 1:
+                wipe_date += timedelta(weeks=2)
+                # Пересчитываем время
+                is_first_thursday = (wipe_date.day <= 7)
+                wipe_hour = 22 if is_first_thursday else 12
+                wipe_date = wipe_date.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
+            
+            return wipe_date
+        
+        else:  # x100 сервер (раз в 1 неделю)
+            days_until_thursday = (3 - now.weekday()) % 7
+            if days_until_thursday == 0 and now.hour >= 22:
+                days_until_thursday = 7
+            
+            next_thursday = now + timedelta(days=days_until_thursday)
+            
+            is_first_thursday = (next_thursday.day <= 7)
+            wipe_hour = 22 if is_first_thursday else 12
+            
+            return next_thursday.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
     
     def start_wipe_checker(self):
+        """Запуск проверки вайпов с МСК временем"""
         def check_wipes():
             last_notified = {}
+            
             while True:
                 try:
-                    now = datetime.now()
+                    now = datetime.now(self.msk_tz)
+                    log.info(f"🔍 Проверка вайпов: {now.strftime('%Y-%m-%d %H:%M:%S')} МСК")
+                    
                     for server_key, server in self.servers_config.items():
                         next_wipe = self.get_next_wipe_date(server_key)
                         if not next_wipe:
@@ -97,7 +154,11 @@ class HostileRustVKBot:
                         hours_until = time_until_wipe / 3600
                         notify_key = f"{server_key}_{next_wipe.strftime('%Y%m%d')}"
                         
-                        if 0.8 <= hours_until <= 1.1 and last_notified.get(notify_key) != True:
+                        # Логирование для отладки
+                        log.debug(f"  {server['name']}: вайп {next_wipe.strftime('%d.%m.%Y %H:%M')}, до вайпа {hours_until:.2f} ч.")
+                        
+                        # Уведомление за 1 час (с запасом 50-70 минут)
+                        if 0.83 <= hours_until <= 1.2 and not last_notified.get(notify_key):
                             server_name = server['name']
                             is_first_thursday = self.is_first_thursday_of_month(next_wipe)
                             wipe_time = "22:00 МСК" if is_first_thursday else "12:00 МСК"
@@ -109,6 +170,8 @@ class HostileRustVKBot:
                             message += f"⏰ Время: {wipe_time}\n\n"
                             message += f"🔄 Не забудьте подготовиться!"
                             
+                            log.info(f"🔔 Отправка уведомлений о вайпе для {server_name} ({len(self.wipe_subscribers)} подписчиков)")
+                            
                             for subscriber_id in self.wipe_subscribers:
                                 try:
                                     self.send_message(subscriber_id, message)
@@ -117,15 +180,29 @@ class HostileRustVKBot:
                                     log.error(f"Ошибка отправки уведомления {subscriber_id}: {e}")
                             
                             last_notified[notify_key] = True
-                            log.info(f"🔔 Отправлены уведомления о вайпе через час для {server_name}")
+                    
+                    # Очистка старых флагов (через 2 часа после вайпа)
+                    for key in list(last_notified.keys()):
+                        if key in last_notified and last_notified[key]:
+                            # Извлекаем дату из ключа
+                            parts = key.split('_')
+                            if len(parts) == 2:
+                                try:
+                                    wipe_date = datetime.strptime(parts[1], '%Y%m%d')
+                                    wipe_date = self.msk_tz.localize(wipe_date)
+                                    if (now - wipe_date).total_seconds() > 7200:  # 2 часа
+                                        last_notified[key] = False
+                                except:
+                                    pass
                     
                 except Exception as e:
                     log.error(f"❌ Ошибка проверки вайпов: {e}")
-                time.sleep(60)
+                
+                time.sleep(60)  # Проверка раз в минуту
         
         wipe_thread = threading.Thread(target=check_wipes, daemon=True)
         wipe_thread.start()
-        log.info("⏰ Запущена проверка вайпов")
+        log.info("⏰ Запущена проверка вайпов (МСК время)")
     
     def load_notes(self):
         DATA_DIR = Path("data")
@@ -156,13 +233,15 @@ class HostileRustVKBot:
         def check_reminders():
             while True:
                 try:
-                    now = datetime.now()
+                    now = datetime.now(self.msk_tz)
                     for admin_id, admin_notes in self.notes.items():
                         admin_id_int = int(admin_id)
                         for note in admin_notes:
                             reminder_time = note.get('reminder_time')
                             if reminder_time and not note.get('reminded', False):
                                 reminder_dt = datetime.fromisoformat(reminder_time)
+                                if reminder_dt.tzinfo is None:
+                                    reminder_dt = self.msk_tz.localize(reminder_dt)
                                 if reminder_dt <= now:
                                     message = f"📝 НАПОМИНАНИЕ!\n\n"
                                     message += f"📌 {note['title']}\n\n"
@@ -392,6 +471,9 @@ class HostileRustVKBot:
                     return
                 elif command == 'unsubscribe_wipe':
                     self.unsubscribe_from_wipe(user_id)
+                    return
+                elif command == 'no_reminder':
+                    self.create_note_reminder(user_id, 'без напоминания')
                     return
             except Exception as e:
                 log.error(f"❌ Ошибка обработки payload: {e}")
@@ -630,21 +712,22 @@ class HostileRustVKBot:
                 
                 if text_lower.endswith('m'):
                     minutes = int(text_lower[:-1])
-                    reminder_time = datetime.now() + timedelta(minutes=minutes)
+                    reminder_time = datetime.now(self.msk_tz) + timedelta(minutes=minutes)
                     reminder_text = f"Через {minutes} минут"
                 elif text_lower.endswith('h'):
                     hours = int(text_lower[:-1])
-                    reminder_time = datetime.now() + timedelta(hours=hours)
+                    reminder_time = datetime.now(self.msk_tz) + timedelta(hours=hours)
                     reminder_text = f"Через {hours} часов"
                 elif text_lower.endswith('d'):
                     days = int(text_lower[:-1])
-                    reminder_time = datetime.now() + timedelta(days=days)
+                    reminder_time = datetime.now(self.msk_tz) + timedelta(days=days)
                     reminder_text = f"Через {days} дней"
                 else:
                     reminder_time = datetime.strptime(text, '%Y-%m-%d %H:%M')
+                    reminder_time = self.msk_tz.localize(reminder_time)
                     reminder_text = reminder_time.strftime('%d.%m.%Y %H:%M')
                 
-                if reminder_time and reminder_time <= datetime.now():
+                if reminder_time and reminder_time <= datetime.now(self.msk_tz):
                     self.send_message(admin_id, "❌ Время напоминания должно быть в будущем!")
                     return
                     
@@ -662,7 +745,7 @@ class HostileRustVKBot:
             'id': note_id,
             'title': self.temp_notes[admin_id]['title'],
             'content': self.temp_notes[admin_id]['content'],
-            'created_at': datetime.now().isoformat(),
+            'created_at': datetime.now(self.msk_tz).isoformat(),
             'reminder_time': reminder_time.isoformat() if reminder_time else None,
             'reminded': False,
             'reminder_text': reminder_text
@@ -708,7 +791,9 @@ class HostileRustVKBot:
             reminder_info = ""
             if note.get('reminder_time') and not note.get('reminded'):
                 reminder_dt = datetime.fromisoformat(note['reminder_time'])
-                if reminder_dt > datetime.now():
+                if reminder_dt.tzinfo is None:
+                    reminder_dt = self.msk_tz.localize(reminder_dt)
+                if reminder_dt > datetime.now(self.msk_tz):
                     reminder_info = f" (напомнить: {reminder_dt.strftime('%d.%m %H:%M')})"
             
             message += f"{status} #{note['id']} - {note['title']}{reminder_info}\n"
@@ -747,7 +832,9 @@ class HostileRustVKBot:
                 
                 if note.get('reminder_time') and not note.get('reminded'):
                     reminder_dt = datetime.fromisoformat(note['reminder_time'])
-                    if reminder_dt > datetime.now():
+                    if reminder_dt.tzinfo is None:
+                        reminder_dt = self.msk_tz.localize(reminder_dt)
+                    if reminder_dt > datetime.now(self.msk_tz):
                         message += f"Напоминание: {reminder_dt.strftime('%d.%m.%Y %H:%M')}\n"
                     else:
                         message += f"Напоминание: Ожидает отправки\n"
@@ -793,6 +880,9 @@ class HostileRustVKBot:
         self.send_message(admin_id, f"❌ Заметка #{note_id} не найдена!")
     
     # ========== ОСТАЛЬНЫЕ МЕТОДЫ ==========
+    
+    def is_first_thursday_of_month(self, date):
+        return date.day <= 7 and date.weekday() == 3
     
     def show_main_menu(self, user_id):
         try:
@@ -878,70 +968,15 @@ class HostileRustVKBot:
         message = f"🛒 МАГАЗИН HOSTILE RUST\n\n{SHOP_URL}\n\n💡 Перейдите по ссылке для пополнения баланса!"
         self.send_message(user_id, message, self.keyboards.back_keyboard())
     
-    def is_first_thursday_of_month(self, date):
-        return date.day <= 7 and date.weekday() == 3
-    
-    def get_next_wipe_date(self, server_key):
-        server = self.servers_config.get(server_key)
-        if not server:
-            return None
-        
-        now = datetime.now()
-        weeks_interval = server.get('wipe_interval', 1)
-        
-        if weeks_interval > 1:
-            first_wipe = datetime(2026, 6, 18, 12, 0, 0)
-            
-            if now < first_wipe:
-                if self.is_first_thursday_of_month(first_wipe):
-                    return first_wipe.replace(hour=22, minute=0, second=0, microsecond=0)
-                return first_wipe
-            
-            days_since_first = (now - first_wipe).days
-            cycles_passed = days_since_first // 14
-            next_wipe = first_wipe + timedelta(weeks=2 * cycles_passed)
-            
-            if next_wipe <= now:
-                next_wipe = first_wipe + timedelta(weeks=2 * (cycles_passed + 1))
-            
-            if self.is_first_thursday_of_month(next_wipe):
-                next_wipe = next_wipe.replace(hour=22, minute=0, second=0, microsecond=0)
-            else:
-                next_wipe = next_wipe.replace(hour=12, minute=0, second=0, microsecond=0)
-            
-            return next_wipe
-        else:
-            days_until_thursday = (3 - now.weekday()) % 7
-            if days_until_thursday == 0 and now.hour >= 12:
-                days_until_thursday = 7
-            
-            next_thursday = now + timedelta(days=days_until_thursday)
-            
-            if self.is_first_thursday_of_month(next_thursday):
-                wipe_hour = 22
-            else:
-                wipe_hour = 12
-            
-            next_wipe = next_thursday.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
-            
-            if days_until_thursday == 0 and now >= next_wipe:
-                next_wipe = next_thursday + timedelta(days=7)
-                if self.is_first_thursday_of_month(next_wipe):
-                    wipe_hour = 22
-                else:
-                    wipe_hour = 12
-                next_wipe = next_wipe.replace(hour=wipe_hour, minute=0, second=0, microsecond=0)
-            
-            return next_wipe
-    
     def show_wipe_info(self, user_id):
         self.reload_servers_config()
-        now = datetime.now()
+        now = datetime.now(self.msk_tz)
         
         message = "💣 ИНФОРМАЦИЯ О ВАЙПАХ\n\n"
         message += "📌 Все вайпы проходят по четвергам\n"
         message += "🕐 Обычное время: 12:00 МСК\n"
-        message += "🕙 Первый четверг месяца: 22:00 МСК\n\n"
+        message += "🕙 Первый четверг месяца: 22:00 МСК\n"
+        message += f"🕐 Текущее время: {now.strftime('%H:%M:%S')} МСК\n\n"
         
         for key, server in self.servers_config.items():
             next_wipe = self.get_next_wipe_date(key)
@@ -1013,7 +1048,7 @@ class HostileRustVKBot:
                 tickets = session.query(Ticket).filter_by(user_id=user.id, status='open').all()
                 if tickets:
                     last_ticket = tickets[-1]
-                    if (datetime.now() - last_ticket.created_at).total_seconds() < TICKET_COOLDOWN_MINUTES * 60:
+                    if (datetime.now(self.msk_tz) - last_ticket.created_at).total_seconds() < TICKET_COOLDOWN_MINUTES * 60:
                         self.send_message(user_id, f"⏳ Тикет можно создавать раз в {TICKET_COOLDOWN_MINUTES} минут", 
                                         self.keyboards.back_keyboard())
                         return
@@ -1173,7 +1208,7 @@ class HostileRustVKBot:
             
             user_id = ticket.user.vk_id
             ticket.status = 'closed'
-            ticket.closed_at = datetime.now()
+            ticket.closed_at = datetime.now(self.msk_tz)
             session.commit()
         finally:
             session.close()
@@ -1238,7 +1273,7 @@ class HostileRustVKBot:
             except (json.JSONDecodeError, FileNotFoundError):
                 promos = []
         
-        promos.append({"code": code, "date": datetime.now().isoformat()})
+        promos.append({"code": code, "date": datetime.now(self.msk_tz).isoformat()})
         with open(DATA_PROMO, 'w', encoding='utf-8') as f:
             json.dump(promos, f, indent=2, ensure_ascii=False)
         
