@@ -1,4 +1,5 @@
 vk-api
+pytz
 sqlalchemy
 python-dotenv
 apscheduler
