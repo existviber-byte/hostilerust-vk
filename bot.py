@@ -138,7 +138,7 @@ class HostileRustVKBot:
     def start_wipe_checker(self):
         """Запуск проверки вайпов с МСК временем"""
         def check_wipes():
-            last_notified = {}
+            last_notified = {}  # Словарь для отслеживания отправленных уведомлений
             
             while True:
                 try:
@@ -158,7 +158,8 @@ class HostileRustVKBot:
                         log.debug(f"  {server['name']}: вайп {next_wipe.strftime('%d.%m.%Y %H:%M')}, до вайпа {hours_until:.2f} ч.")
                         
                         # Уведомление за 1 час (с запасом 50-70 минут)
-                        if 0.83 <= hours_until <= 1.2 and not last_notified.get(notify_key):
+                        # Проверяем, что уведомление ещё не отправлено
+                        if 0.83 <= hours_until <= 1.2 and notify_key not in last_notified:
                             server_name = server['name']
                             is_first_thursday = self.is_first_thursday_of_month(next_wipe)
                             wipe_time = "22:00 МСК" if is_first_thursday else "12:00 МСК"
@@ -179,21 +180,14 @@ class HostileRustVKBot:
                                 except Exception as e:
                                     log.error(f"Ошибка отправки уведомления {subscriber_id}: {e}")
                             
+                            # Запоминаем, что отправили уведомление для этого вайпа
                             last_notified[notify_key] = True
-                    
-                    # Очистка старых флагов (через 2 часа после вайпа)
-                    for key in list(last_notified.keys()):
-                        if key in last_notified and last_notified[key]:
-                            # Извлекаем дату из ключа
-                            parts = key.split('_')
-                            if len(parts) == 2:
-                                try:
-                                    wipe_date = datetime.strptime(parts[1], '%Y%m%d')
-                                    wipe_date = self.msk_tz.localize(wipe_date)
-                                    if (now - wipe_date).total_seconds() > 7200:  # 2 часа
-                                        last_notified[key] = False
-                                except:
-                                    pass
+                            log.info(f"✅ Уведомление для {server_name} отправлено, флаг установлен")
+                        
+                        # Автоматически удаляем флаги через 2 часа после вайпа
+                        if notify_key in last_notified and time_until_wipe < -7200:  # 2 часа после вайпа
+                            del last_notified[notify_key]
+                            log.info(f"🗑 Флаг уведомления для {server_name} удалён (прошло 2 часа после вайпа)")
                     
                 except Exception as e:
                     log.error(f"❌ Ошибка проверки вайпов: {e}")
