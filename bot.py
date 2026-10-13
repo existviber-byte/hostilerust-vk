@@ -424,21 +424,21 @@ class HostileRustVKBot:
                 elif command == 'admin_edit_servers':
                     self.show_servers_editor(user_id)
                     return
+                elif command.startswith('edit_server_name_'):
+                    server_key = command.replace('edit_server_name_', '')
+                    self.start_edit_server_name(user_id, server_key)
+                    return
+                elif command.startswith('edit_server_ip_'):
+                    server_key = command.replace('edit_server_ip_', '')
+                    self.start_edit_server_ip(user_id, server_key)
+                    return
+                elif command.startswith('edit_server_wipe_'):
+                    server_key = command.replace('edit_server_wipe_', '')
+                    self.start_edit_server_wipe(user_id, server_key)
+                    return
                 elif command.startswith('edit_server_'):
                     server_key = command.replace('edit_server_', '')
                     self.start_edit_server(user_id, server_key)
-                    return
-                elif command.startswith('edit_name_'):
-                    server_key = command.replace('edit_name_', '')
-                    self.start_edit_server_name(user_id, server_key)
-                    return
-                elif command.startswith('edit_ip_'):
-                    server_key = command.replace('edit_ip_', '')
-                    self.start_edit_server_ip(user_id, server_key)
-                    return
-                elif command.startswith('edit_wipe_'):
-                    server_key = command.replace('edit_wipe_', '')
-                    self.start_edit_server_wipe(user_id, server_key)
                     return
                 elif command == 'admin_promo_stats':
                     self.show_promo_stats(user_id)
