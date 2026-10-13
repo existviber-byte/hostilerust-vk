@@ -369,7 +369,7 @@ class HostileRustVKBot:
     
     def handle_message(self, user_id, text, payload=None):
         log.info(f"📨 Сообщение от {user_id}: {text[:50] if text else ''}")
-        
+        log.info(f"🔑 PAYLOAD: {payload!r}")
         try:
             user_info = self.vk_api.users.get(user_ids=user_id)[0]
             first_name = user_info.get('first_name', '')
