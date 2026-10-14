@@ -312,10 +312,10 @@ class HostileRustVKBot:
                 "description": "Сервер x2, вайп раз в 2 недели"
             },
             "x100": {
-                "name": "HOSTILE RUST | x100 | CLANS",
+                "name": "HOSTILE RUST | x5 | CLANS",
                 "ip": "5.42.211.191:35000",
                 "wipe_interval": 1,
-                "description": "Сервер x100, вайп каждую неделю"
+                "description": "Сервер x5, вайп каждую неделю"
             }
         }
         
@@ -590,8 +590,8 @@ class HostileRustVKBot:
         
         message = "✅ Вы подписались на уведомления о вайпах!\n\n"
         message += "🔔 Бот будет присылать вам оповещения за 1 час до вайпа на серверах:\n"
-        message += "• x2 сервер (раз в 2 недели)\n"
-        message += "• x100 сервер (каждую неделю)\n\n"
+        message += "• x2 сервер (каждую неделю)\n"
+        message += "• x5 сервер (каждую неделю)\n\n"
         message += "❌ Чтобы отписаться, напишите: Отписаться от вайпов"
         
         self.send_message(user_id, message)
@@ -993,8 +993,8 @@ class HostileRustVKBot:
                     message += "⚠️ Это первый четверг месяца — вайп в 22:00!\n"
                 message += "\n"
         
-        message += "🔄 Вайпы x2 сервера проходят строго раз в 14 дней\n"
-        message += "🔄 Вайпы x100 сервера проходят строго раз в 7 дней\n\n"
+        message += "🔄 Вайпы x2 сервера проходят строго раз в 7 дней\n"
+        message += "🔄 Вайпы x5 сервера проходят строго раз в 7 дней\n\n"
         
         if user_id in self.wipe_subscribers:
             message += "🔔 Вы подписаны на уведомления о вайпах (за час)\n"
