@@ -129,9 +129,9 @@ class Keyboards:
         """Клавиатура с серверами"""
         keyboard = VkKeyboard(inline=True)
         
-        keyboard.add_button('📋 x2 IP', color=VkKeyboardColor.PRIMARY, 
+        keyboard.add_button('📋 №1', color=VkKeyboardColor.PRIMARY, 
                           payload={'command': 'copy_ip_x2'})
-        keyboard.add_button('📋 x100 IP', color=VkKeyboardColor.PRIMARY,
+        keyboard.add_button('📋 №2', color=VkKeyboardColor.PRIMARY,
                           payload={'command': 'copy_ip_x100'})
         keyboard.add_line()
         keyboard.add_button('🔔 Подписаться на вайпы', color=VkKeyboardColor.POSITIVE,
